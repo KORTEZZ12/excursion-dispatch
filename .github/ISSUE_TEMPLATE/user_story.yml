@@ -1,0 +1,44 @@
+name: Пользовательская история
+description: Требование в формате «как… я хочу… чтобы…» с критериями приёмки
+title: "US-XX: "
+labels: ["история"]
+body:
+  - type: input
+    id: role
+    attributes:
+      label: Как
+      placeholder: гид / администратор / клиент
+    validations:
+      required: true
+  - type: textarea
+    id: want
+    attributes:
+      label: Я хочу
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Чтобы
+    validations:
+      required: true
+  - type: textarea
+    id: ac
+    attributes:
+      label: Критерии приёмки
+      description: Gherkin на русском — Сценарий, Дано, Когда, Тогда
+      render: gherkin
+    validations:
+      required: true
+  - type: input
+    id: trace
+    attributes:
+      label: Боли и правила
+      placeholder: П1, BR-06
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Приоритет
+      options: ["Must", "Should", "Could", "Won't"]
+    validations:
+      required: true
