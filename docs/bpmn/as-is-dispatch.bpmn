@@ -1,0 +1,438 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Definitions_AsIs" targetNamespace="http://bpmn.io/schema/bpmn" exporter="excursion-dispatch" exporterVersion="0.1">
+  <bpmn:collaboration id="Collaboration_AsIs">
+    <bpmn:participant id="P_Client" name="Клиент" processRef="Process_Client" />
+    <bpmn:participant id="P_Admin" name="Администратор" processRef="Process_Admin" />
+    <bpmn:participant id="P_Guide" name="Гид" processRef="Process_Guide">
+      <bpmn:participantMultiplicity minimum="2" maximum="100" />
+    </bpmn:participant>
+    <bpmn:messageFlow id="M_1" sourceRef="C_Call" targetRef="A_Start" name="звонок" />
+    <bpmn:messageFlow id="M_2" sourceRef="A_Post" targetRef="G_Start" name="сообщение в общем чате" />
+    <bpmn:messageFlow id="M_3" sourceRef="G_Reply" targetRef="A_Reply" name="отклик" />
+    <bpmn:messageFlow id="M_4" sourceRef="A_DM" targetRef="G_Wait" name="личное сообщение" />
+    <bpmn:messageFlow id="M_5" sourceRef="A_SendNotice" targetRef="C_Notice" name="отписка" />
+    <bpmn:messageFlow id="M_6" sourceRef="C_Come" targetRef="G_Meet" name="оплата наличными или переводом" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_Client" name="Клиент: запись на экскурсию" isExecutable="false">
+    <bpmn:startEvent id="C_Start" name="Нужна экскурсия">
+      <bpmn:outgoing>F_C1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:task id="C_Call" name="Позвонить администратору">
+      <bpmn:incoming>F_C1</bpmn:incoming>
+      <bpmn:outgoing>F_C2</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:intermediateCatchEvent id="C_Notice" name="Отписка получена">
+      <bpmn:incoming>F_C2</bpmn:incoming>
+      <bpmn:outgoing>F_C3</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="C_Notice_def" messageRef="Msg_Notice" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:task id="C_Come" name="Прийти к месту сбора и оплатить">
+      <bpmn:incoming>F_C3</bpmn:incoming>
+      <bpmn:outgoing>F_C4</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="C_End" name="Экскурсия проведена">
+      <bpmn:incoming>F_C4</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_C1" sourceRef="C_Start" targetRef="C_Call" />
+    <bpmn:sequenceFlow id="F_C2" sourceRef="C_Call" targetRef="C_Notice" />
+    <bpmn:sequenceFlow id="F_C3" sourceRef="C_Notice" targetRef="C_Come" />
+    <bpmn:sequenceFlow id="F_C4" sourceRef="C_Come" targetRef="C_End" />
+  </bpmn:process>
+  <bpmn:process id="Process_Admin" name="Администратор: заявка и поиск гида" isExecutable="false">
+    <bpmn:startEvent id="A_Start" name="Звонок клиента">
+      <bpmn:outgoing>F_A1</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="A_Start_def" messageRef="Msg_Call" />
+    </bpmn:startEvent>
+    <bpmn:task id="A_Create" name="Уточнить детали и создать заявку в CRM">
+      <bpmn:incoming>F_A1</bpmn:incoming>
+      <bpmn:outgoing>F_A2</bpmn:outgoing>
+      <bpmn:dataOutputAssociation id="DO_CRM"><bpmn:targetRef>A_CRM</bpmn:targetRef></bpmn:dataOutputAssociation>
+    </bpmn:task>
+    <bpmn:dataStoreReference id="A_CRM" name="CRM" />
+    <bpmn:task id="A_Post" name="Опубликовать группу в чате гидов">
+      <bpmn:incoming>F_A2</bpmn:incoming>
+      <bpmn:outgoing>F_A3</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:eventBasedGateway id="A_EBG" name="Ждать отклик">
+      <bpmn:incoming>F_A3</bpmn:incoming>
+      <bpmn:outgoing>F_A4</bpmn:outgoing>
+      <bpmn:outgoing>F_A5</bpmn:outgoing>
+    </bpmn:eventBasedGateway>
+    <bpmn:intermediateCatchEvent id="A_Reply" name="Гид откликнулся в чате">
+      <bpmn:incoming>F_A4</bpmn:incoming>
+      <bpmn:outgoing>F_A7</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="A_Reply_def" messageRef="Msg_Reply" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:intermediateCatchEvent id="A_NoReply" name="Отклика долго нет">
+      <bpmn:incoming>F_A5</bpmn:incoming>
+      <bpmn:outgoing>F_A6</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="A_NoReply_def" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:task id="A_Personal" name="Найти гида лично: звонки и личные сообщения">
+      <bpmn:incoming>F_A6</bpmn:incoming>
+      <bpmn:outgoing>F_A8</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:exclusiveGateway id="A_Merge" name="Гид найден">
+      <bpmn:incoming>F_A7</bpmn:incoming>
+      <bpmn:incoming>F_A8</bpmn:incoming>
+      <bpmn:outgoing>F_A9</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:task id="A_Assign" name="Закрепить гида за группой">
+      <bpmn:incoming>F_A9</bpmn:incoming>
+      <bpmn:outgoing>F_A10</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:intermediateCatchEvent id="A_Evening" name="Вечер накануне">
+      <bpmn:incoming>F_A10</bpmn:incoming>
+      <bpmn:outgoing>F_A11</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="A_Evening_def" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:task id="A_DM" name="Написать гиду группы на завтра">
+      <bpmn:incoming>F_A11</bpmn:incoming>
+      <bpmn:outgoing>F_A12</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:task id="A_SendNotice" name="Отправить клиенту отписку">
+      <bpmn:incoming>F_A12</bpmn:incoming>
+      <bpmn:outgoing>F_A13</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="A_End" name="Группа подготовлена">
+      <bpmn:incoming>F_A13</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_A1" sourceRef="A_Start" targetRef="A_Create" />
+    <bpmn:sequenceFlow id="F_A2" sourceRef="A_Create" targetRef="A_Post" />
+    <bpmn:sequenceFlow id="F_A3" sourceRef="A_Post" targetRef="A_EBG" />
+    <bpmn:sequenceFlow id="F_A4" sourceRef="A_EBG" targetRef="A_Reply" />
+    <bpmn:sequenceFlow id="F_A5" sourceRef="A_EBG" targetRef="A_NoReply" />
+    <bpmn:sequenceFlow id="F_A6" sourceRef="A_NoReply" targetRef="A_Personal" />
+    <bpmn:sequenceFlow id="F_A7" sourceRef="A_Reply" targetRef="A_Merge" />
+    <bpmn:sequenceFlow id="F_A8" sourceRef="A_Personal" targetRef="A_Merge" />
+    <bpmn:sequenceFlow id="F_A9" sourceRef="A_Merge" targetRef="A_Assign" />
+    <bpmn:sequenceFlow id="F_A10" sourceRef="A_Assign" targetRef="A_Evening" />
+    <bpmn:sequenceFlow id="F_A11" sourceRef="A_Evening" targetRef="A_DM" />
+    <bpmn:sequenceFlow id="F_A12" sourceRef="A_DM" targetRef="A_SendNotice" />
+    <bpmn:sequenceFlow id="F_A13" sourceRef="A_SendNotice" targetRef="A_End" />
+    <bpmn:textAnnotation id="A_Ann_P3">
+      <bpmn:text>П3: администратор не всегда на связи, когда гиду нужно уточнить детали</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:textAnnotation id="A_Ann_N1">
+      <bpmn:text>Н1: ручная рассылка каждый вечер, растёт с числом гидов</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="As_P3" sourceRef="A_Ann_P3" targetRef="A_Assign" />
+    <bpmn:association id="As_N1" sourceRef="A_Ann_N1" targetRef="A_DM" />
+  </bpmn:process>
+  <bpmn:process id="Process_Guide" name="Гид: от сообщения в чате до экскурсии" isExecutable="false">
+    <bpmn:startEvent id="G_Start" name="Сообщение о группе в чате">
+      <bpmn:outgoing>F_G1</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="G_Start_def" messageRef="Msg_ChatPost" />
+    </bpmn:startEvent>
+    <bpmn:exclusiveGateway id="G_Seen" name="Увидел и свободен?">
+      <bpmn:incoming>F_G1</bpmn:incoming>
+      <bpmn:outgoing>F_G2</bpmn:outgoing>
+      <bpmn:outgoing>F_G3</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:task id="G_Reply" name="Откликнуться в чате">
+      <bpmn:incoming>F_G2</bpmn:incoming>
+      <bpmn:outgoing>F_G4</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="G_Missed" name="Группа прошла мимо">
+      <bpmn:incoming>F_G3</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:intermediateCatchEvent id="G_Wait" name="Получен список групп на завтра">
+      <bpmn:incoming>F_G4</bpmn:incoming>
+      <bpmn:outgoing>F_G5</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="G_Wait_def" messageRef="Msg_DM" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:intermediateCatchEvent id="G_Time" name="Время экскурсии">
+      <bpmn:incoming>F_G5</bpmn:incoming>
+      <bpmn:outgoing>F_G6</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="G_Time_def" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:task id="G_Meet" name="Встретить группу и принять оплату">
+      <bpmn:incoming>F_G6</bpmn:incoming>
+      <bpmn:outgoing>F_G7</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:task id="G_Lead" name="Провести экскурсию">
+      <bpmn:incoming>F_G7</bpmn:incoming>
+      <bpmn:outgoing>F_G8</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="G_End" name="Экскурсия проведена">
+      <bpmn:incoming>F_G8</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_G1" sourceRef="G_Start" targetRef="G_Seen" />
+    <bpmn:sequenceFlow id="F_G2" sourceRef="G_Seen" targetRef="G_Reply" name="да" />
+    <bpmn:sequenceFlow id="F_G3" sourceRef="G_Seen" targetRef="G_Missed" name="нет" />
+    <bpmn:sequenceFlow id="F_G4" sourceRef="G_Reply" targetRef="G_Wait" />
+    <bpmn:sequenceFlow id="F_G5" sourceRef="G_Wait" targetRef="G_Time" />
+    <bpmn:sequenceFlow id="F_G6" sourceRef="G_Time" targetRef="G_Meet" />
+    <bpmn:sequenceFlow id="F_G7" sourceRef="G_Meet" targetRef="G_Lead" />
+    <bpmn:sequenceFlow id="F_G8" sourceRef="G_Lead" targetRef="G_End" />
+    <bpmn:textAnnotation id="G_Ann_P1">
+      <bpmn:text>П1: сообщение теряется в ленте чата</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:textAnnotation id="G_Ann_P2">
+      <bpmn:text>П2, П4: группы приходят сообщениями, своего расписания нет — легко забыть</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="As_P1" sourceRef="G_Ann_P1" targetRef="G_Seen" />
+    <bpmn:association id="As_P2" sourceRef="G_Ann_P2" targetRef="G_Wait" />
+  </bpmn:process>
+  <bpmn:message id="Msg_Call" name="Звонок клиента" />
+  <bpmn:message id="Msg_ChatPost" name="Сообщение о группе в чате" />
+  <bpmn:message id="Msg_Reply" name="Отклик гида" />
+  <bpmn:message id="Msg_DM" name="Группы на завтра" />
+  <bpmn:message id="Msg_Notice" name="Отписка" />
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_AsIs">
+      <bpmndi:BPMNShape id="P_Client_di" bpmnElement="P_Client" isHorizontal="true">
+        <dc:Bounds x="160" y="60" width="2740" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="P_Admin_di" bpmnElement="P_Admin" isHorizontal="true">
+        <dc:Bounds x="160" y="250" width="2740" height="260" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="P_Guide_di" bpmnElement="P_Guide" isHorizontal="true">
+        <dc:Bounds x="160" y="560" width="2740" height="260" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C_Start_di" bpmnElement="C_Start">
+        <dc:Bounds x="252" y="112" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C_Call_di" bpmnElement="C_Call">
+        <dc:Bounds x="380" y="90" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C_Notice_di" bpmnElement="C_Notice">
+        <dc:Bounds x="2012" y="112" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C_Come_di" bpmnElement="C_Come">
+        <dc:Bounds x="2300" y="90" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C_End_di" bpmnElement="C_End">
+        <dc:Bounds x="2492" y="112" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A_Start_di" bpmnElement="A_Start">
+        <dc:Bounds x="412" y="302" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A_Create_di" bpmnElement="A_Create">
+        <dc:Bounds x="540" y="280" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A_CRM_di" bpmnElement="A_CRM">
+        <dc:Bounds x="565" y="415" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A_Post_di" bpmnElement="A_Post">
+        <dc:Bounds x="700" y="280" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A_EBG_di" bpmnElement="A_EBG">
+        <dc:Bounds x="885" y="295" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A_Reply_di" bpmnElement="A_Reply">
+        <dc:Bounds x="1052" y="302" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A_NoReply_di" bpmnElement="A_NoReply">
+        <dc:Bounds x="988" y="422" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A_Personal_di" bpmnElement="A_Personal">
+        <dc:Bounds x="1180" y="400" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A_Merge_di" bpmnElement="A_Merge" isMarkerVisible="true">
+        <dc:Bounds x="1365" y="295" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A_Assign_di" bpmnElement="A_Assign">
+        <dc:Bounds x="1500" y="280" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A_Evening_di" bpmnElement="A_Evening">
+        <dc:Bounds x="1692" y="302" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A_DM_di" bpmnElement="A_DM">
+        <dc:Bounds x="1820" y="280" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A_SendNotice_di" bpmnElement="A_SendNotice">
+        <dc:Bounds x="1980" y="280" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A_End_di" bpmnElement="A_End">
+        <dc:Bounds x="2172" y="302" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A_Ann_P3_di" bpmnElement="A_Ann_P3">
+        <dc:Bounds x="1475" y="405" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A_Ann_N1_di" bpmnElement="A_Ann_N1">
+        <dc:Bounds x="1955" y="405" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Start_di" bpmnElement="G_Start">
+        <dc:Bounds x="732" y="612" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Seen_di" bpmnElement="G_Seen" isMarkerVisible="true">
+        <dc:Bounds x="885" y="605" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Reply_di" bpmnElement="G_Reply">
+        <dc:Bounds x="1020" y="590" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Missed_di" bpmnElement="G_Missed">
+        <dc:Bounds x="1052" y="732" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Wait_di" bpmnElement="G_Wait">
+        <dc:Bounds x="1852" y="612" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Time_di" bpmnElement="G_Time">
+        <dc:Bounds x="2172" y="612" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Meet_di" bpmnElement="G_Meet">
+        <dc:Bounds x="2300" y="590" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Lead_di" bpmnElement="G_Lead">
+        <dc:Bounds x="2460" y="590" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_End_di" bpmnElement="G_End">
+        <dc:Bounds x="2652" y="612" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Ann_P1_di" bpmnElement="G_Ann_P1">
+        <dc:Bounds x="675" y="715" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Ann_P2_di" bpmnElement="G_Ann_P2">
+        <dc:Bounds x="1955" y="715" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_C1_di" bpmnElement="F_C1">
+        <di:waypoint x="288" y="130" />
+        <di:waypoint x="380" y="130" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_C2_di" bpmnElement="F_C2">
+        <di:waypoint x="480" y="130" />
+        <di:waypoint x="2012" y="130" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_C3_di" bpmnElement="F_C3">
+        <di:waypoint x="2048" y="130" />
+        <di:waypoint x="2300" y="130" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_C4_di" bpmnElement="F_C4">
+        <di:waypoint x="2400" y="130" />
+        <di:waypoint x="2492" y="130" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_A1_di" bpmnElement="F_A1">
+        <di:waypoint x="448" y="320" />
+        <di:waypoint x="540" y="320" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_A2_di" bpmnElement="F_A2">
+        <di:waypoint x="640" y="320" />
+        <di:waypoint x="700" y="320" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_A3_di" bpmnElement="F_A3">
+        <di:waypoint x="800" y="320" />
+        <di:waypoint x="885" y="320" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_A4_di" bpmnElement="F_A4">
+        <di:waypoint x="935" y="320" />
+        <di:waypoint x="1052" y="320" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_A5_di" bpmnElement="F_A5">
+        <di:waypoint x="910" y="345" />
+        <di:waypoint x="910" y="440" />
+        <di:waypoint x="988" y="440" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_A6_di" bpmnElement="F_A6">
+        <di:waypoint x="1024" y="440" />
+        <di:waypoint x="1180" y="440" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_A7_di" bpmnElement="F_A7">
+        <di:waypoint x="1088" y="320" />
+        <di:waypoint x="1365" y="320" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_A8_di" bpmnElement="F_A8">
+        <di:waypoint x="1280" y="440" />
+        <di:waypoint x="1390" y="440" />
+        <di:waypoint x="1390" y="345" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_A9_di" bpmnElement="F_A9">
+        <di:waypoint x="1415" y="320" />
+        <di:waypoint x="1500" y="320" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_A10_di" bpmnElement="F_A10">
+        <di:waypoint x="1600" y="320" />
+        <di:waypoint x="1692" y="320" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_A11_di" bpmnElement="F_A11">
+        <di:waypoint x="1728" y="320" />
+        <di:waypoint x="1820" y="320" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_A12_di" bpmnElement="F_A12">
+        <di:waypoint x="1920" y="320" />
+        <di:waypoint x="1980" y="320" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_A13_di" bpmnElement="F_A13">
+        <di:waypoint x="2080" y="320" />
+        <di:waypoint x="2172" y="320" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_G1_di" bpmnElement="F_G1">
+        <di:waypoint x="768" y="630" />
+        <di:waypoint x="885" y="630" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_G2_di" bpmnElement="F_G2">
+        <di:waypoint x="935" y="630" />
+        <di:waypoint x="1020" y="630" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_G3_di" bpmnElement="F_G3">
+        <di:waypoint x="910" y="655" />
+        <di:waypoint x="910" y="750" />
+        <di:waypoint x="1052" y="750" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_G4_di" bpmnElement="F_G4">
+        <di:waypoint x="1120" y="630" />
+        <di:waypoint x="1852" y="630" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_G5_di" bpmnElement="F_G5">
+        <di:waypoint x="1888" y="630" />
+        <di:waypoint x="2172" y="630" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_G6_di" bpmnElement="F_G6">
+        <di:waypoint x="2208" y="630" />
+        <di:waypoint x="2300" y="630" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_G7_di" bpmnElement="F_G7">
+        <di:waypoint x="2400" y="630" />
+        <di:waypoint x="2460" y="630" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_G8_di" bpmnElement="F_G8">
+        <di:waypoint x="2560" y="630" />
+        <di:waypoint x="2652" y="630" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="M_1_di" bpmnElement="M_1">
+        <di:waypoint x="430" y="170" />
+        <di:waypoint x="430" y="302" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="M_2_di" bpmnElement="M_2">
+        <di:waypoint x="750" y="360" />
+        <di:waypoint x="750" y="612" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="M_3_di" bpmnElement="M_3">
+        <di:waypoint x="1070" y="590" />
+        <di:waypoint x="1070" y="338" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="M_4_di" bpmnElement="M_4">
+        <di:waypoint x="1870" y="360" />
+        <di:waypoint x="1870" y="612" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="M_5_di" bpmnElement="M_5">
+        <di:waypoint x="2030" y="280" />
+        <di:waypoint x="2030" y="148" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="M_6_di" bpmnElement="M_6">
+        <di:waypoint x="2350" y="170" />
+        <di:waypoint x="2350" y="590" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="As_P3_di" bpmnElement="As_P3">
+        <di:waypoint x="1550" y="405" />
+        <di:waypoint x="1550" y="360" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="As_N1_di" bpmnElement="As_N1">
+        <di:waypoint x="2030" y="405" />
+        <di:waypoint x="1870" y="360" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="As_P1_di" bpmnElement="As_P1">
+        <di:waypoint x="750" y="715" />
+        <di:waypoint x="910" y="655" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="As_P2_di" bpmnElement="As_P2">
+        <di:waypoint x="2030" y="715" />
+        <di:waypoint x="1870" y="648" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DO_CRM_di" bpmnElement="DO_CRM">
+        <di:waypoint x="590" y="360" />
+        <di:waypoint x="590" y="415" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

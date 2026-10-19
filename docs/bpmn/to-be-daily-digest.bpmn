@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.8.0" id="Definitions_Digest" targetNamespace="http://bpmn.io/schema/bpmn" exporter="excursion-dispatch" exporterVersion="0.1">
+  <bpmn:collaboration id="Collaboration_Digest">
+    <bpmn:participant id="P_Guide" name="Гид (Telegram-бот)">
+      <bpmn:participantMultiplicity minimum="2" maximum="100" />
+    </bpmn:participant>
+    <bpmn:participant id="P_Disp" name="Диспетчер экскурсий" processRef="daily-digest" />
+    <bpmn:messageFlow id="M1" sourceRef="S_Send" targetRef="P_Guide" name="сводка на завтра" />
+  </bpmn:collaboration>
+  <bpmn:process id="daily-digest" name="Сводка на завтра" isExecutable="true">
+    <bpmn:startEvent id="S_Start" name="Каждый день в 19:00">
+      <bpmn:outgoing>F1</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="S_Start_def"><bpmn:timeCycle xsi:type="bpmn:tFormalExpression">R/2026-10-20T19:00:00+03:00/P1D</bpmn:timeCycle></bpmn:timerEventDefinition>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="S_Collect" name="Собрать группы на завтра по гидам">
+      <bpmn:extensionElements><zeebe:taskDefinition type="collect-digests" /></bpmn:extensionElements>
+      <bpmn:incoming>F1</bpmn:incoming>
+      <bpmn:outgoing>F2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sendTask id="S_Send" name="Отправить сводку гиду">
+      <bpmn:extensionElements><zeebe:taskDefinition type="send-digest" /></bpmn:extensionElements>
+      <bpmn:incoming>F2</bpmn:incoming>
+      <bpmn:outgoing>F3</bpmn:outgoing>
+      <bpmn:multiInstanceLoopCharacteristics><bpmn:extensionElements><zeebe:loopCharacteristics inputCollection="=digests" inputElement="digest" /></bpmn:extensionElements></bpmn:multiInstanceLoopCharacteristics>
+    </bpmn:sendTask>
+    <bpmn:endEvent id="S_End" name="Сводки отправлены">
+      <bpmn:incoming>F3</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F1" sourceRef="S_Start" targetRef="S_Collect" />
+    <bpmn:sequenceFlow id="F2" sourceRef="S_Collect" targetRef="S_Send" />
+    <bpmn:sequenceFlow id="F3" sourceRef="S_Send" targetRef="S_End" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_Digest">
+      <bpmndi:BPMNShape id="P_Guide_di" bpmnElement="P_Guide" isHorizontal="true">
+        <dc:Bounds x="160" y="60" width="820" height="60" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="P_Disp_di" bpmnElement="P_Disp" isHorizontal="true">
+        <dc:Bounds x="160" y="170" width="820" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Start_di" bpmnElement="S_Start">
+        <dc:Bounds x="252" y="222" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Collect_di" bpmnElement="S_Collect">
+        <dc:Bounds x="380" y="200" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Send_di" bpmnElement="S_Send">
+        <dc:Bounds x="540" y="200" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_End_di" bpmnElement="S_End">
+        <dc:Bounds x="732" y="222" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F1_di" bpmnElement="F1">
+        <di:waypoint x="288" y="240" />
+        <di:waypoint x="380" y="240" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F2_di" bpmnElement="F2">
+        <di:waypoint x="480" y="240" />
+        <di:waypoint x="540" y="240" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F3_di" bpmnElement="F3">
+        <di:waypoint x="640" y="240" />
+        <di:waypoint x="732" y="240" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="M1_di" bpmnElement="M1">
+        <di:waypoint x="590" y="200" />
+        <di:waypoint x="590" y="120" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
