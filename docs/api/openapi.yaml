@@ -1,0 +1,1260 @@
+openapi: 3.1.0
+info:
+  title: Диспетчер экскурсий
+  version: 1.0.0
+  description: |
+    API панели администратора и входящие вебхуки amoCRM и Telegram. Гиды работают
+    через Telegram-бота, поэтому своего API у них нет. Соглашения — в [README](README.md).
+
+    Изменяющие запросы к заявкам и назначениям требуют `If-Match` с версией из `ETag`:
+    так две вкладки администратора не перетрут изменения друг друга.
+  contact:
+    name: Кирилл Фадеев, системный аналитик
+  license:
+    name: CC BY 4.0
+    url: https://creativecommons.org/licenses/by/4.0/
+servers:
+  - url: https://dispatch.tours.example
+    description: Вымышленный адрес
+tags:
+  - name: Доска
+    description: Группы дня и проблемные группы
+  - name: Заявки
+    description: Заявки из панели и просмотр заявок из amoCRM
+  - name: Назначения
+    description: Ручное назначение и снятие гида, история группы
+  - name: Эскалации
+    description: Сигналы дежурному, когда процесс встал
+  - name: Отписки
+    description: Готовые отписки для отправки клиенту
+  - name: Гиды
+    description: Приглашение, подтверждение и деактивация гидов
+  - name: Настройки
+    description: Параметры P-xx и дежурства
+  - name: Интеграции
+    description: Входящие вебхуки amoCRM и Telegram
+security:
+  - adminAuth: []
+paths:
+  /v1/board:
+    get:
+      tags: [Доска]
+      operationId: getBoard
+      summary: Группы на день
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          example: '2026-10-24'
+        - name: attention
+          in: query
+          description: Только группы без гида, без подтверждения или с открытой эскалацией (US-17)
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Доска
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Board'
+              example:
+                date: '2026-10-24'
+                groups:
+                  - groupId: 3c1f2a9e-8b7d-4e6f-9a1b-2c3d4e5f6a70
+                    bookingId: 7a6b5c4d-3e2f-4a1b-8c9d-0e1f2a3b4c5d
+                    routeName: Обзорная по Иннополису
+                    startsAt: '2026-10-24T11:00:00+03:00'
+                    participants: 14
+                    status: SEARCHING
+                    guide: null
+                    windowEndsAt: '2026-10-22T10:40:00+03:00'
+                    noticeStatus: PENDING
+                    openEscalations: [NO_GUIDE]
+                    routeOverlaps: []
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/bookings:
+    post:
+      tags: [Заявки]
+      operationId: createBooking
+      summary: Создать заявку в панели
+      description: Запасной путь, если заявка пришла мимо amoCRM (US-02). Группы и поиск гида создаются сразу.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookingCreate'
+            example:
+              routeId: 0f1e2d3c-4b5a-4968-8776-655443322110
+              startsAt: '2026-10-24T11:00:00+03:00'
+              adults: 30
+              children: 8
+              discounted: 2
+              paymentMethod: CASH
+              client:
+                fullName: Мария Иванова
+                phone: '+79991112233'
+                messenger: TELEGRAM
+      responses:
+        '201':
+          description: Заявка создана, группы ищут гидов
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+              example:
+                id: 7a6b5c4d-3e2f-4a1b-8c9d-0e1f2a3b4c5d
+                source: PANEL
+                externalId: null
+                status: ACTIVE
+                routeId: 0f1e2d3c-4b5a-4968-8776-655443322110
+                startsAt: '2026-10-24T11:00:00+03:00'
+                participants: 40
+                expectedAmount: '35400.00'
+                groups:
+                  - id: 3c1f2a9e-8b7d-4e6f-9a1b-2c3d4e5f6a70
+                    seq: 1
+                    participants: 14
+                    status: SEARCHING
+                  - id: 4d2e3f0a-9c8b-4a7f-8e6d-5c4b3a2f1e0d
+                    seq: 2
+                    participants: 13
+                    status: SEARCHING
+                  - id: 5e3f4a1b-0d9c-4b8a-9f7e-6d5c4b3a2f1e
+                    seq: 3
+                    participants: 13
+                    status: SEARCHING
+                version: 1
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Время уже прошло или маршрут не найден
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://dispatch.tours.example/problems/start-in-past
+                title: Время уже прошло
+                status: 422
+                code: START_IN_PAST
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+  /v1/bookings/{bookingId}:
+    parameters:
+      - $ref: '#/components/parameters/BookingId'
+    get:
+      tags: [Заявки]
+      operationId: getBooking
+      summary: Заявка с группами
+      responses:
+        '200':
+          description: Заявка
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Заявки]
+      operationId: updateBooking
+      summary: Изменить заявку из панели
+      description: |
+        Только для заявок, созданных в панели. Заявку из amoCRM меняют в amoCRM (BR-04).
+        Смена времени и числа участников запускает правила BR-21 и BR-22.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookingPatch'
+            example:
+              startsAt: '2026-10-24T13:00:00+03:00'
+      responses:
+        '200':
+          description: Заявка изменена
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Заявка из amoCRM, менять её нужно там
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://dispatch.tours.example/problems/booking-from-crm
+                title: Измените заявку в amoCRM
+                status: 409
+                code: BOOKING_FROM_CRM
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+        '412':
+          $ref: '#/components/responses/VersionConflict'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+  /v1/bookings/{bookingId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/BookingId'
+    post:
+      tags: [Заявки]
+      operationId: cancelBooking
+      summary: Отменить заявку из панели
+      description: Повторная отмена возвращает 200 и ту же отменённую заявку. Гиды получают уведомление (BR-20).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  enum: [CLIENT, WEATHER, GUIDE_ILLNESS, OTHER]
+                comment:
+                  type: [string, 'null']
+            example:
+              reason: CLIENT
+      responses:
+        '200':
+          description: Заявка отменена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Заявка из amoCRM, отменять её нужно там
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /v1/groups/{groupId}/assignment:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    put:
+      tags: [Назначения]
+      operationId: assignGuide
+      summary: Назначить гида вручную
+      description: |
+        Идемпотентно: повтор с тем же гидом возвращает то же назначение. Открытое окно откликов
+        закрывается без выбора, откликнувшиеся видят «Группу назначил администратор» (US-06, US-23).
+        Если у гида пересечение, нужен `confirmOverlap: true` (BR-09).
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [guideId]
+              properties:
+                guideId:
+                  type: string
+                  format: uuid
+                confirmOverlap:
+                  type: boolean
+                  default: false
+            example:
+              guideId: 9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
+      responses:
+        '200':
+          description: Гид назначен
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Пересечение без подтверждения, или группа уже отменена либо проведена
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                overlap:
+                  summary: Нужно подтвердить пересечение
+                  value:
+                    type: https://dispatch.tours.example/problems/overlap-confirmation-required
+                    title: У гида группа в это время
+                    status: 409
+                    code: OVERLAP_CONFIRMATION_REQUIRED
+                    overlaps:
+                      - groupId: 6f4a5b2c-1e0d-4c9b-8a7f-6e5d4c3b2a1f
+                        startsAt: '2026-10-24T11:30:00+03:00'
+                        routeName: Обзорная по Иннополису
+                    traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+                final:
+                  summary: Группа уже отменена
+                  value:
+                    type: https://dispatch.tours.example/problems/group-not-assignable
+                    title: Группа уже отменена
+                    status: 409
+                    code: GROUP_NOT_ASSIGNABLE
+                    traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+        '412':
+          $ref: '#/components/responses/VersionConflict'
+        '422':
+          description: Гид не активен
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://dispatch.tours.example/problems/guide-not-active
+                title: Гид не подключён или деактивирован
+                status: 422
+                code: GUIDE_NOT_ACTIVE
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+    delete:
+      tags: [Назначения]
+      operationId: unassignGuide
+      summary: Снять гида
+      description: Группа возвращается в поиск, гид получает уведомление (BR-09). Повтор на группе без гида возвращает 200.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Гид снят, поиск запущен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/VersionConflict'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+  /v1/groups/{groupId}/history:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    get:
+      tags: [Назначения]
+      operationId: getGroupHistory
+      summary: История группы
+      responses:
+        '200':
+          description: Все изменения статуса и гида (NFR-11)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GroupEvent'
+              example:
+                - at: '2026-10-22T10:30:00+03:00'
+                  actor: SYSTEM
+                  fromStatus: null
+                  toStatus: SEARCHING
+                  guideId: null
+                - at: '2026-10-22T10:40:00+03:00'
+                  actor: SYSTEM
+                  fromStatus: SEARCHING
+                  toStatus: ASSIGNED
+                  guideId: 9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/escalations:
+    get:
+      tags: [Эскалации]
+      operationId: listEscalations
+      summary: Эскалации
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [OPEN, ACKED, RESOLVED]
+      responses:
+        '200':
+          description: Эскалации
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Escalation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/escalations/{escalationId}/ack:
+    parameters:
+      - $ref: '#/components/parameters/EscalationId'
+    post:
+      tags: [Эскалации]
+      operationId: ackEscalation
+      summary: Взять в работу
+      description: Останавливает таймер «всем администраторам» (BR-25). Повтор возвращает 200.
+      responses:
+        '200':
+          description: Эскалация в работе
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Escalation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/escalations/{escalationId}/resolve:
+    parameters:
+      - $ref: '#/components/parameters/EscalationId'
+    post:
+      tags: [Эскалации]
+      operationId: resolveEscalation
+      summary: Закрыть вручную с комментарием
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [comment]
+              properties:
+                comment:
+                  type: string
+                  minLength: 3
+            example:
+              comment: Договорился с гидом по телефону
+      responses:
+        '200':
+          description: Эскалация закрыта
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Escalation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/notices:
+    get:
+      tags: [Отписки]
+      operationId: listNotices
+      summary: Отписки к отправке
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, SENT]
+            default: PENDING
+      responses:
+        '200':
+          description: Отписки с готовым текстом и ссылкой на чат (US-10)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ClientNotice'
+              example:
+                - id: 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e
+                  bookingId: 7a6b5c4d-3e2f-4a1b-8c9d-0e1f2a3b4c5d
+                  kind: NOTICE
+                  messenger: TELEGRAM
+                  chatLink: https://t.me/+79991112233
+                  guidesAssigned: true
+                  text: 'Завтра, 24 октября, в 11:00 ждём вас у места сбора: https://yandex.ru/maps/?pt=48.75,55.75'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/notices/{noticeId}/sent:
+    parameters:
+      - name: noticeId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [Отписки]
+      operationId: markNoticeSent
+      summary: Отметить, что отписка отправлена
+      description: Фиксирует фактический канал (BR-16). Повтор возвращает 200 и ту же отметку.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel]
+              properties:
+                channel:
+                  type: string
+                  enum: [TELEGRAM, WHATSAPP, MAX, CALL]
+            example:
+              channel: TELEGRAM
+      responses:
+        '200':
+          description: Отписка отмечена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientNotice'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/guides:
+    get:
+      tags: [Гиды]
+      operationId: listGuides
+      summary: Гиды
+      responses:
+        '200':
+          description: Гиды со статусами
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Guide'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/guide-invitations:
+    post:
+      tags: [Гиды]
+      operationId: createInvitation
+      summary: Пригласить гида
+      description: Одноразовая ссылка на бота, действует P-17 (BR-28).
+      responses:
+        '201':
+          description: Ссылка создана
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [link, expiresAt]
+                properties:
+                  link:
+                    type: string
+                    format: uri
+                  expiresAt:
+                    type: string
+                    format: date-time
+              example:
+                link: https://t.me/inno_dispatch_bot?start=inv_Qx7Kp2Lm9Rt4Vw8Z
+                expiresAt: '2026-10-21T12:00:00+03:00'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/guides/{guideId}/approve:
+    parameters:
+      - $ref: '#/components/parameters/GuideId'
+    post:
+      tags: [Гиды]
+      operationId: approveGuide
+      summary: Подтвердить подключение гида
+      responses:
+        '200':
+          description: Гид активен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Guide'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/guides/{guideId}/deactivate:
+    parameters:
+      - $ref: '#/components/parameters/GuideId'
+    post:
+      tags: [Гиды]
+      operationId: deactivateGuide
+      summary: Деактивировать гида
+      description: Будущие группы гида возвращаются в поиск, администратор получает список (BR-30).
+      responses:
+        '200':
+          description: Гид деактивирован
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [guide, returnedToSearch]
+                properties:
+                  guide:
+                    $ref: '#/components/schemas/Guide'
+                  returnedToSearch:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/parameters/{code}:
+    put:
+      tags: [Настройки]
+      operationId: setParameter
+      summary: Изменить параметр
+      description: P-01 и P-06 меняются только релизом (NFR-14), для них ответ 422.
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^P-[0-9]{2}$'
+          example: P-21
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: string
+            example:
+              value: PT10M
+      responses:
+        '200':
+          description: Параметр изменён, действует для новых групп
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Параметр меняется только релизом
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://dispatch.tours.example/problems/parameter-read-only
+                title: Этот параметр меняется только релизом
+                status: 422
+                code: PARAMETER_READ_ONLY
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+  /v1/duty-shifts:
+    post:
+      tags: [Настройки]
+      operationId: createDutyShift
+      summary: Добавить дежурство
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [adminId, from, to]
+              properties:
+                adminId:
+                  type: string
+                  format: uuid
+                from:
+                  type: string
+                  format: date-time
+                to:
+                  type: string
+                  format: date-time
+            example:
+              adminId: 2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f
+              from: '2026-10-24T09:00:00+03:00'
+              to: '2026-10-24T18:00:00+03:00'
+      responses:
+        '201':
+          description: Дежурство добавлено
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: В это время уже есть дежурный (US-25)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://dispatch.tours.example/problems/duty-overlap
+                title: В это время уже дежурит другой администратор
+                status: 409
+                code: DUTY_OVERLAP
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+  /integrations/amocrm/webhook/{secret}:
+    post:
+      tags: [Интеграции]
+      operationId: receiveAmoCrmWebhook
+      summary: Вебхук amoCRM
+      description: |
+        amoCRM ждёт ответ не дольше 2 с и отключает хук после сотни невалидных ответов за 2 часа.
+        Поэтому тело сохраняется как есть и сразу возвращается 200, даже если событие не будет
+        обработано. Данные сделки потом берутся из API amoCRM (ADR-001).
+      security: []
+      parameters:
+        - name: secret
+          in: path
+          required: true
+          description: Секрет из адреса вебхука, подписи у amoCRM нет
+          schema:
+            type: string
+            minLength: 32
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+            example:
+              leads[update][0][id]: '7551167'
+              leads[update][0][last_modified]: '1760857200'
+              account[subdomain]: inno-tours
+      responses:
+        '200':
+          description: Событие сохранено
+        '404':
+          description: Неверный секрет
+  /integrations/telegram/webhook:
+    post:
+      tags: [Интеграции]
+      operationId: receiveTelegramUpdate
+      summary: Обновление от Telegram
+      description: Нажатия кнопок и сообщения гидам. Дубли отсекаются по `update_id`.
+      security:
+        - telegramSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [update_id]
+              properties:
+                update_id:
+                  type: integer
+              additionalProperties: true
+            example:
+              update_id: 734119021
+              callback_query:
+                id: '4382bfdwdsb323b2d9'
+                data: resp:3c1f2a9e-8b7d-4e6f-9a1b-2c3d4e5f6a70
+      responses:
+        '200':
+          description: Обновление принято
+        '401':
+          description: Нет или неверный секретный заголовок
+components:
+  securitySchemes:
+    adminAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Сессия администратора в панели
+    telegramSecret:
+      type: apiKey
+      in: header
+      name: X-Telegram-Bot-Api-Secret-Token
+      description: Секрет, заданный в setWebhook
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: 5f0e6a2b-7c1d-4e8f-9a3b-2c4d6e8f0a1b
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: Версия из ETag последнего чтения
+      schema:
+        type: string
+      example: '"v3"'
+    BookingId:
+      name: bookingId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    GroupId:
+      name: groupId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    GuideId:
+      name: guideId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EscalationId:
+      name: escalationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  headers:
+    ETag:
+      description: Версия ресурса для If-Match
+      schema:
+        type: string
+      example: '"v3"'
+  responses:
+    ValidationError:
+      description: Ошибка в данных
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://dispatch.tours.example/problems/validation-error
+            title: Ошибка в данных
+            status: 400
+            code: VALIDATION_ERROR
+            errors:
+              - field: client.phone
+                message: Номер в формате +7XXXXXXXXXX
+            traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+    Unauthorized:
+      description: Нужно войти
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://dispatch.tours.example/problems/unauthorized
+            title: Нужно войти заново
+            status: 401
+            code: UNAUTHORIZED
+            traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+    NotFound:
+      description: Не найдено
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://dispatch.tours.example/problems/not-found
+            title: Не найдено
+            status: 404
+            code: NOT_FOUND
+            traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+    VersionConflict:
+      description: Ресурс изменили после вашего чтения
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://dispatch.tours.example/problems/version-conflict
+            title: Группу уже изменили, обновите страницу
+            status: 412
+            code: VERSION_CONFLICT
+            traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+    PreconditionRequired:
+      description: Нет If-Match
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://dispatch.tours.example/problems/precondition-required
+            title: Нужна версия ресурса
+            status: 428
+            code: PRECONDITION_REQUIRED
+            traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+  schemas:
+    GroupStatus:
+      type: string
+      enum: [SEARCHING, ASSIGNED, CONFIRMED, COMPLETED, NOT_HELD, CANCELLED]
+    Messenger:
+      type: string
+      enum: [TELEGRAM, WHATSAPP, MAX]
+    GuideRef:
+      type: object
+      required: [id, fullName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        phone:
+          type: string
+    BoardGroup:
+      type: object
+      required: [groupId, bookingId, routeName, startsAt, participants, status]
+      properties:
+        groupId:
+          type: string
+          format: uuid
+        bookingId:
+          type: string
+          format: uuid
+        routeName:
+          type: string
+        startsAt:
+          type: string
+          format: date-time
+        participants:
+          type: integer
+        status:
+          $ref: '#/components/schemas/GroupStatus'
+        guide:
+          oneOf:
+            - $ref: '#/components/schemas/GuideRef'
+            - type: 'null'
+        windowEndsAt:
+          type: [string, 'null']
+          format: date-time
+        noticeStatus:
+          type: [string, 'null']
+          enum: [PENDING, SENT, null]
+        openEscalations:
+          type: array
+          items:
+            type: string
+        routeOverlaps:
+          type: array
+          description: Пересечения с другими группами на точках маршрута (US-27)
+          items:
+            type: object
+            required: [pointName, at, otherGroupId]
+            properties:
+              pointName:
+                type: string
+              at:
+                type: string
+                format: date-time
+              otherGroupId:
+                type: string
+                format: uuid
+    Board:
+      type: object
+      required: [date, groups]
+      properties:
+        date:
+          type: string
+          format: date
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/BoardGroup'
+    ClientInput:
+      type: object
+      required: [phone, messenger]
+      properties:
+        fullName:
+          type: [string, 'null']
+        phone:
+          type: string
+          pattern: '^\+7\d{10}$'
+        messenger:
+          $ref: '#/components/schemas/Messenger'
+    BookingCreate:
+      type: object
+      required: [routeId, startsAt, paymentMethod, client]
+      properties:
+        routeId:
+          type: string
+          format: uuid
+        startsAt:
+          type: string
+          format: date-time
+        adults:
+          type: integer
+          minimum: 0
+          default: 0
+        children:
+          type: integer
+          minimum: 0
+          default: 0
+        discounted:
+          type: integer
+          minimum: 0
+          default: 0
+        paymentMethod:
+          type: string
+          enum: [CASH, TRANSFER]
+        client:
+          $ref: '#/components/schemas/ClientInput'
+    BookingPatch:
+      type: object
+      minProperties: 1
+      properties:
+        startsAt:
+          type: string
+          format: date-time
+        adults:
+          type: integer
+          minimum: 0
+        children:
+          type: integer
+          minimum: 0
+        discounted:
+          type: integer
+          minimum: 0
+        paymentMethod:
+          type: string
+          enum: [CASH, TRANSFER]
+    GroupSummary:
+      type: object
+      required: [id, seq, participants, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        seq:
+          type: integer
+        participants:
+          type: integer
+          minimum: 1
+          maximum: 15
+        status:
+          $ref: '#/components/schemas/GroupStatus'
+    Booking:
+      type: object
+      required: [id, source, status, routeId, startsAt, participants, expectedAmount, groups, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        source:
+          type: string
+          enum: [AMOCRM, PANEL]
+        externalId:
+          type: [integer, 'null']
+          description: id сделки amoCRM
+        status:
+          type: string
+          enum: [ACTIVE, CANCELLED, COMPLETED]
+        routeId:
+          type: string
+          format: uuid
+        startsAt:
+          type: string
+          format: date-time
+        participants:
+          type: integer
+          minimum: 1
+        expectedAmount:
+          type: string
+          pattern: '^\d+(\.\d{2})?$'
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupSummary'
+        version:
+          type: integer
+    Group:
+      type: object
+      required: [id, bookingId, status, startsAt, endsAt, participants, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        bookingId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/GroupStatus'
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+        participants:
+          type: integer
+        guide:
+          oneOf:
+            - $ref: '#/components/schemas/GuideRef'
+            - type: 'null'
+        version:
+          type: integer
+    GroupEvent:
+      type: object
+      required: [at, actor, toStatus]
+      properties:
+        at:
+          type: string
+          format: date-time
+        actor:
+          type: string
+          description: SYSTEM, ADMIN:<id> или GUIDE:<id>
+        fromStatus:
+          oneOf:
+            - $ref: '#/components/schemas/GroupStatus'
+            - type: 'null'
+        toStatus:
+          $ref: '#/components/schemas/GroupStatus'
+        guideId:
+          type: [string, 'null']
+          format: uuid
+    Escalation:
+      type: object
+      required: [id, reason, status, openedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        groupId:
+          type: [string, 'null']
+          format: uuid
+        bookingId:
+          type: [string, 'null']
+          format: uuid
+        reason:
+          type: string
+          enum: [NO_GUIDE, NO_CONFIRMATION, REPLACEMENT_REQUESTED, NOTICE_NOT_SENT, GUIDE_BLOCKED_BOT]
+        status:
+          type: string
+          enum: [OPEN, ACKED, RESOLVED]
+        openedAt:
+          type: string
+          format: date-time
+        comment:
+          type: [string, 'null']
+    ClientNotice:
+      type: object
+      required: [id, bookingId, kind, messenger, text, guidesAssigned]
+      properties:
+        id:
+          type: string
+          format: uuid
+        bookingId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [NOTICE, GUIDE_CHANGED]
+        messenger:
+          $ref: '#/components/schemas/Messenger'
+        chatLink:
+          type: [string, 'null']
+          format: uri
+          description: Ссылка на чат с клиентом, если мессенджер это позволяет
+        guidesAssigned:
+          type: boolean
+          description: false — отписка готова без гида, крайний срок наступил (BR-15)
+        text:
+          type: string
+        sentAt:
+          type: [string, 'null']
+          format: date-time
+        channel:
+          type: [string, 'null']
+          enum: [TELEGRAM, WHATSAPP, MAX, CALL, null]
+    Guide:
+      type: object
+      required: [id, fullName, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        phone:
+          type: string
+        status:
+          type: string
+          enum: [PENDING_APPROVAL, ACTIVE, DEACTIVATED]
+        botBlocked:
+          type: boolean
+    Problem:
+      type: object
+      description: RFC 9457 Problem Details плюс машиночитаемый код
+      required: [type, title, status, code, traceId]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        code:
+          type: string
+          enum:
+            - VALIDATION_ERROR
+            - UNAUTHORIZED
+            - NOT_FOUND
+            - START_IN_PAST
+            - ROUTE_NOT_FOUND
+            - BOOKING_FROM_CRM
+            - OVERLAP_CONFIRMATION_REQUIRED
+            - GROUP_NOT_ASSIGNABLE
+            - GUIDE_NOT_ACTIVE
+            - VERSION_CONFLICT
+            - PRECONDITION_REQUIRED
+            - PARAMETER_READ_ONLY
+            - DUTY_OVERLAP
+        traceId:
+          type: string
+        overlaps:
+          type: array
+          items:
+            type: object
+            required: [groupId, startsAt]
+            properties:
+              groupId:
+                type: string
+                format: uuid
+              startsAt:
+                type: string
+                format: date-time
+              routeName:
+                type: string
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:
+                type: string
+              message:
+                type: string
