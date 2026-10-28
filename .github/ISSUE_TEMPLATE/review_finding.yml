@@ -1,0 +1,35 @@
+name: Замечание ревью
+description: Находка независимого ревью /sar или /sar-crosscheck
+title: "F-XX: "
+labels: ["ревью"]
+body:
+  - type: input
+    id: finding
+    attributes:
+      label: ID замечания и ссылка на реестр
+      placeholder: F-12, docs/reviews/2026-10-27-iteration-2
+    validations:
+      required: true
+  - type: dropdown
+    id: level
+    attributes:
+      label: Уровень
+      options: ["Критическое", "Существенное", "Мелкое"]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: Что не так и к чему приведёт
+    validations:
+      required: true
+  - type: textarea
+    id: fix
+    attributes:
+      label: Как исправить
+      description: Варианты с компромиссами, включая «сузить требование» или «принять риск»
+  - type: input
+    id: where
+    attributes:
+      label: Затронутые артефакты
+      placeholder: BR-06, US-05, ddl.sql
