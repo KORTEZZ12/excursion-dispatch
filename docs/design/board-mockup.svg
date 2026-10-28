@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" font-family="Inter, Segoe UI, Roboto, Arial, sans-serif">
+<rect width="100%" height="100%" fill="#f6f7f9"/>
+<rect x="0" y="0" width="1200" height="56" fill="#1f2937"/>
+<text x="24" y="35" fill="#ffffff" font-size="18" font-weight="600">Диспетчер экскурсий</text>
+<text x="1176" y="35" fill="#cbd5e1" font-size="14" text-anchor="end">Дежурный: Администратор 1</text>
+<text x="24" y="96" fill="#111827" font-size="22" font-weight="600">Доска групп · суббота, 24 октября</text>
+<rect x="24" y="112" width="150" height="32" rx="16" fill="#111827"/><text x="99" y="133" fill="#fff" font-size="13" text-anchor="middle">Все группы · 6</text>
+<rect x="184" y="112" width="190" height="32" rx="16" fill="#fff" stroke="#d1d5db"/><text x="279" y="133" fill="#b42318" font-size="13" text-anchor="middle">Требуют внимания · 2</text>
+<rect x="384" y="112" width="260" height="32" rx="16" fill="#fff" stroke="#d1d5db"/><text x="514" y="133" fill="#374151" font-size="13" text-anchor="middle">Передано партнёрам за месяц · 1</text>
+<rect x="24" y="160" width="1152" height="436" rx="12" fill="#ffffff" stroke="#e5e7eb"/>
+<text x="48" y="192" fill="#6b7280" font-size="12" font-weight="600">Время</text>
+<text x="130" y="192" fill="#6b7280" font-size="12" font-weight="600">Маршрут и группа</text>
+<text x="430" y="192" fill="#6b7280" font-size="12" font-weight="600">Статус</text>
+<text x="610" y="192" fill="#6b7280" font-size="12" font-weight="600">Гид</text>
+<text x="790" y="192" fill="#6b7280" font-size="12" font-weight="600">Отписка</text>
+<text x="930" y="192" fill="#6b7280" font-size="12" font-weight="600">Эскалации</text>
+<line x1="24" y1="206" x2="1176" y2="206" stroke="#e5e7eb"/>
+<text x="48" y="243" fill="#111827" font-size="15" font-weight="600">09:00</text>
+<text x="130" y="243" fill="#111827" font-size="14">Обзорная · 12 чел.</text>
+<rect x="430" y="225" width="127" height="26" rx="13" fill="#e3f4ea"/><text x="493" y="243" fill="#1f7a4d" font-size="13" text-anchor="middle">Гид подтвердил</text>
+<text x="610" y="243" fill="#374151" font-size="14">Гид В</text>
+<text x="790" y="243" fill="#374151" font-size="14">отправлена</text>
+<line x1="24" y1="270" x2="1176" y2="270" stroke="#f0f1f3"/>
+<text x="48" y="307" fill="#111827" font-size="15" font-weight="600">11:00</text>
+<text x="130" y="307" fill="#111827" font-size="14">Обзорная · 14 чел. · группа 1/3</text>
+<rect x="430" y="289" width="111" height="26" rx="13" fill="#e4eefa"/><text x="485" y="307" fill="#1d5fa8" font-size="13" text-anchor="middle">Гид назначен</text>
+<text x="610" y="307" fill="#374151" font-size="14">Гид А</text>
+<text x="790" y="307" fill="#374151" font-size="14">ждёт гидов</text>
+<line x1="24" y1="334" x2="1176" y2="334" stroke="#f0f1f3"/>
+<rect x="25" y="335" width="4" height="62" fill="#d92d20"/>
+<text x="48" y="371" fill="#111827" font-size="15" font-weight="600">11:00</text>
+<text x="130" y="371" fill="#111827" font-size="14">Обзорная · 13 чел. · группа 2/3</text>
+<rect x="430" y="353" width="87" height="26" rx="13" fill="#fdf0dc"/><text x="474" y="371" fill="#a35a00" font-size="13" text-anchor="middle">Ищем гида</text>
+<text x="610" y="371" fill="#374151" font-size="14">—</text>
+<text x="790" y="371" fill="#374151" font-size="14">ждёт гидов</text>
+<rect x="930" y="353" width="119" height="26" rx="6" fill="#fee4e2"/><text x="989" y="371" fill="#b42318" font-size="13" text-anchor="middle">Гид не найден</text>
+<text x="932" y="395" fill="#6b7280" font-size="11">откликов нет</text>
+<line x1="24" y1="398" x2="1176" y2="398" stroke="#f0f1f3"/>
+<text x="48" y="435" fill="#111827" font-size="15" font-weight="600">11:00</text>
+<text x="130" y="435" fill="#111827" font-size="14">Обзорная · 13 чел. · группа 3/3</text>
+<rect x="430" y="417" width="150" height="26" rx="13" fill="#ece8f8"/><text x="505" y="435" fill="#5b4a9e" font-size="13" text-anchor="middle">Передана партнёру</text>
+<text x="610" y="435" fill="#374151" font-size="14">Экскурсии-партнёр</text>
+<text x="790" y="435" fill="#374151" font-size="14">ждёт гидов</text>
+<line x1="24" y1="462" x2="1176" y2="462" stroke="#f0f1f3"/>
+<rect x="25" y="463" width="4" height="62" fill="#d92d20"/>
+<text x="48" y="499" fill="#111827" font-size="15" font-weight="600">14:00</text>
+<text x="130" y="499" fill="#111827" font-size="14">Обзорная · 6 чел.</text>
+<rect x="430" y="481" width="111" height="26" rx="13" fill="#e4eefa"/><text x="485" y="499" fill="#1d5fa8" font-size="13" text-anchor="middle">Гид назначен</text>
+<text x="610" y="499" fill="#374151" font-size="14">Гид Г</text>
+<text x="790" y="499" fill="#374151" font-size="14">отправлена</text>
+<rect x="930" y="481" width="150" height="26" rx="6" fill="#fee4e2"/><text x="1005" y="499" fill="#b42318" font-size="13" text-anchor="middle">Нет подтверждения</text>
+<text x="932" y="523" fill="#6b7280" font-size="11">запрос в 12:00</text>
+<line x1="24" y1="526" x2="1176" y2="526" stroke="#f0f1f3"/>
+<text x="48" y="563" fill="#111827" font-size="15" font-weight="600">16:30</text>
+<text x="130" y="563" fill="#111827" font-size="14">Обзорная · 9 чел.</text>
+<rect x="430" y="545" width="111" height="26" rx="13" fill="#e4eefa"/><text x="485" y="563" fill="#1d5fa8" font-size="13" text-anchor="middle">Гид назначен</text>
+<text x="610" y="563" fill="#374151" font-size="14">Гид Д</text>
+<text x="790" y="563" fill="#374151" font-size="14">к 18:00</text>
+<line x1="24" y1="590" x2="1176" y2="590" stroke="#f0f1f3"/>
+<text x="24" y="612" fill="#9ca3af" font-size="11">Макет к US-17 и US-28, данные вымышленные</text>
+</svg>

@@ -1,13 +1,15 @@
 openapi: 3.1.0
 info:
   title: Диспетчер экскурсий
-  version: 1.0.0
+  version: 0.4.0
   description: |
     API панели администратора и входящие вебхуки amoCRM и Telegram. Гиды работают
     через Telegram-бота, поэтому своего API у них нет. Соглашения — в [README](README.md).
 
-    Изменяющие запросы к заявкам и назначениям требуют `If-Match` с версией из `ETag`:
-    так две вкладки администратора не перетрут изменения друг друга.
+    Все изменяющие запросы панели требуют `Idempotency-Key`: повтор с тем же ключом возвращает
+    результат первого выполнения, даже если версия ресурса уже сменилась. Правки заявок и назначений
+    дополнительно требуют `If-Match` с версией из `ETag`: так две вкладки администратора не перетрут
+    изменения друг друга.
   contact:
     name: Кирилл Фадеев, системный аналитик
   license:
@@ -83,7 +85,9 @@ paths:
       tags: [Заявки]
       operationId: createBooking
       summary: Создать заявку в панели
-      description: Запасной путь, если заявка пришла мимо amoCRM (US-02). Группы и поиск гида создаются сразу.
+      description: |
+        Запасной путь, если заявка пришла мимо amoCRM (US-02). Группы и поиск гида создаются сразу.
+        Повтор с тем же `Idempotency-Key` возвращает тот же ответ 201 и ту же заявку, второй заявки не будет.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -109,6 +113,8 @@ paths:
           headers:
             ETag:
               $ref: '#/components/headers/ETag'
+            Location:
+              $ref: '#/components/headers/Location'
           content:
             application/json:
               schema:
@@ -141,7 +147,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '422':
-          description: Время уже прошло или маршрут не найден
+          description: Время уже прошло, маршрут не найден или ключ использован с другим телом
           content:
             application/problem+json:
               schema:
@@ -152,6 +158,8 @@ paths:
                 status: 422
                 code: START_IN_PAST
                 traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
   /v1/bookings/{bookingId}:
     parameters:
       - $ref: '#/components/parameters/BookingId'
@@ -179,13 +187,15 @@ paths:
       summary: Изменить заявку из панели
       description: |
         Только для заявок, созданных в панели. Заявку из amoCRM меняют в amoCRM (BR-04).
+        Тело — JSON Merge Patch (RFC 7396): переданные поля заменяются, остальные не меняются.
         Смена времени и числа участников запускает правила BR-21 и BR-22.
       parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
-          application/json:
+          application/merge-patch+json:
             schema:
               $ref: '#/components/schemas/BookingPatch'
             example:
@@ -218,6 +228,8 @@ paths:
                 traceId: 4bf92f3577b34da6a3ce929d0e0e4736
         '412':
           $ref: '#/components/responses/VersionConflict'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
         '428':
           $ref: '#/components/responses/PreconditionRequired'
   /v1/bookings/{bookingId}/cancel:
@@ -227,7 +239,11 @@ paths:
       tags: [Заявки]
       operationId: cancelBooking
       summary: Отменить заявку из панели
-      description: Повторная отмена возвращает 200 и ту же отменённую заявку. Гиды получают уведомление (BR-20).
+      description: |
+        Повторная отмена возвращает 200 и ту же отменённую заявку. Гиды получают уведомление (BR-20).
+        Заявку из amoCRM отменяют в amoCRM. Если amoCRM недоступна, администратор делает аварийную отмену
+        (`emergency: true`): заявка отменяется сразу и помечается «Повторить в amoCRM» (BR-04).
+        Отмена не требует `If-Match`: повтор безопасен, а отменённую заявку уже нельзя изменить.
       requestBody:
         required: true
         content:
@@ -241,6 +257,10 @@ paths:
                   enum: [CLIENT, WEATHER, GUIDE_ILLNESS, OTHER]
                 comment:
                   type: [string, 'null']
+                emergency:
+                  type: boolean
+                  default: false
+                  description: Аварийная отмена заявки из amoCRM
             example:
               reason: CLIENT
       responses:
@@ -255,11 +275,17 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: Заявка из amoCRM, отменять её нужно там
+          description: Заявка из amoCRM, отменять её нужно там или аварийной отменой
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
   /v1/groups/{groupId}/assignment:
     parameters:
       - $ref: '#/components/parameters/GroupId'
@@ -268,10 +294,14 @@ paths:
       operationId: assignGuide
       summary: Назначить гида вручную
       description: |
-        Идемпотентно: повтор с тем же гидом возвращает то же назначение. Открытое окно откликов
-        закрывается без выбора, откликнувшиеся видят «Группу назначил администратор» (US-06, US-23).
-        Если у гида пересечение, нужен `confirmOverlap: true` (BR-09).
+        Повтор с тем же `Idempotency-Key` возвращает то же назначение. Открытое окно откликов закрывается
+        без выбора, откликнувшиеся видят «Группу назначил администратор» (US-06, US-23).
+        Назначить гида с пересечением нельзя (BR-09, D-13): ответ 409 `GUIDE_BUSY` с пересечениями,
+        свободных гидов панель берёт из `GET /v1/guides?freeForGroup=`. Назначение позже чем за P-07
+        до начала сразу считается подтверждением выхода (BR-13). Если у группы был другой гид,
+        это замена: прежний получает «Вы больше не ведёте группу».
       parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
@@ -284,9 +314,6 @@ paths:
                 guideId:
                   type: string
                   format: uuid
-                confirmOverlap:
-                  type: boolean
-                  default: false
             example:
               guideId: 9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
       responses:
@@ -304,19 +331,19 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: Пересечение без подтверждения, или группа уже отменена либо проведена
+          description: У гида пересечение, или группа уже отменена, передана партнёру либо проведена
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
               examples:
                 overlap:
-                  summary: Нужно подтвердить пересечение
+                  summary: У гида пересечение
                   value:
-                    type: https://dispatch.tours.example/problems/overlap-confirmation-required
+                    type: https://dispatch.tours.example/problems/guide-busy
                     title: У гида группа в это время
                     status: 409
-                    code: OVERLAP_CONFIRMATION_REQUIRED
+                    code: GUIDE_BUSY
                     overlaps:
                       - groupId: 6f4a5b2c-1e0d-4c9b-8a7f-6e5d4c3b2a1f
                         startsAt: '2026-10-24T11:30:00+03:00'
@@ -333,7 +360,7 @@ paths:
         '412':
           $ref: '#/components/responses/VersionConflict'
         '422':
-          description: Гид не активен
+          description: Гид не активен или ключ использован с другим телом
           content:
             application/problem+json:
               schema:
@@ -350,9 +377,18 @@ paths:
       tags: [Назначения]
       operationId: unassignGuide
       summary: Снять гида
-      description: Группа возвращается в поиск, гид получает уведомление (BR-09). Повтор на группе без гида возвращает 200.
+      description: |
+        Группа возвращается в поиск новым раундом, гид получает уведомление (BR-09). Повтор с тем же
+        ключом возвращает тот же ответ; снятие на группе без гида — 200.
       parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/IfMatch'
+        - name: reason
+          in: query
+          description: Причина снятия, попадает в историю группы
+          schema:
+            type: string
+            maxLength: 200
       responses:
         '200':
           description: Гид снят, поиск запущен
@@ -366,6 +402,70 @@ paths:
           $ref: '#/components/responses/NotFound'
         '412':
           $ref: '#/components/responses/VersionConflict'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+  /v1/groups/{groupId}/hand-over:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    post:
+      tags:
+        - Назначения
+      operationId: handOverGroup
+      summary: Передать группу партнёру
+      description: |
+        Гида не нашли, группу ведёт партнёр (BR-35). Только для группы в поиске. Предложения гидам
+        отзываются, эскалация «Гид не найден» закрывается, в отписке у этой группы — пометка «ведёт партнёр».
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - partnerName
+              properties:
+                partnerName:
+                  type: string
+                  minLength: 2
+                comment:
+                  type:
+                    - string
+                    - 'null'
+            example:
+              partnerName: Экскурсии-партнёр
+              comment: Свободных гидов нет, договорились по телефону
+      responses:
+        '200':
+          description: Группа передана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Группа уже назначена, отменена или передана
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://dispatch.tours.example/problems/group-not-searching
+                title: Группа уже не в поиске
+                status: 409
+                code: GROUP_NOT_SEARCHING
+                traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+        '412':
+          $ref: '#/components/responses/VersionConflict'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
         '428':
           $ref: '#/components/responses/PreconditionRequired'
   /v1/groups/{groupId}/history:
@@ -428,7 +528,8 @@ paths:
       tags: [Эскалации]
       operationId: ackEscalation
       summary: Взять в работу
-      description: Останавливает таймер «всем администраторам» (BR-25). Повтор возвращает 200.
+      description: Фиксирует, кто и когда взял эскалацию (BR-25), и останавливает таймер «всем администраторам». Повтор 
+        возвращает 200.
       responses:
         '200':
           description: Эскалация в работе
@@ -440,6 +541,12 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
   /v1/escalations/{escalationId}/resolve:
     parameters:
       - $ref: '#/components/parameters/EscalationId'
@@ -471,6 +578,13 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+      description: Закрыть вручную с комментарием (BR-26). Повтор возвращает 200 и ту же закрытую эскалацию.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
   /v1/notices:
     get:
       tags: [Отписки]
@@ -500,6 +614,7 @@ paths:
                   chatLink: https://t.me/+79991112233
                   guidesAssigned: true
                   text: 'Завтра, 24 октября, в 11:00 ждём вас у места сбора: https://yandex.ru/maps/?pt=48.75,55.75'
+                  dueAt: '2026-10-23T18:00:00+03:00'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /v1/notices/{noticeId}/sent:
@@ -514,20 +629,30 @@ paths:
       tags: [Отписки]
       operationId: markNoticeSent
       summary: Отметить, что отписка отправлена
-      description: Фиксирует фактический канал (BR-16). Повтор возвращает 200 и ту же отметку.
+      description: |
+        Фиксирует фактический канал и текст, который ушёл клиенту (BR-16). Повтор возвращает 200 и ту же отметку.
+        Если текст расходится с актуальными данными (гида сменили, пока администратор отправлял), отписка
+        отмечается отправленной, а следом появляется задача «Сообщить клиенту о новом гиде» (BR-34).
+        Отметка закрывает эскалацию «Отписка не отправлена к сроку».
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [channel]
+              required:
+                - channel
+                - text
               properties:
                 channel:
                   type: string
                   enum: [TELEGRAM, WHATSAPP, MAX, CALL]
+                text:
+                  type: string
+                  description: Текст, который администратор отправил клиенту
             example:
               channel: TELEGRAM
+              text: 'Завтра, 24 октября, в 11:00 ждём вас у места сбора: https://yandex.ru/maps/?pt=48.75,55.75'
       responses:
         '200':
           description: Отписка отмечена
@@ -539,6 +664,12 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
   /v1/guides:
     get:
       tags: [Гиды]
@@ -555,12 +686,21 @@ paths:
                   $ref: '#/components/schemas/Guide'
         '401':
           $ref: '#/components/responses/Unauthorized'
+      parameters:
+        - name: freeForGroup
+          in: query
+          description: Только активные гиды без пересечения с этой группой — для ручного назначения (BR-09)
+          schema:
+            type: string
+            format: uuid
   /v1/guide-invitations:
     post:
       tags: [Гиды]
       operationId: createInvitation
       summary: Пригласить гида
-      description: Одноразовая ссылка на бота, действует P-17 (BR-28).
+      description: |
+        Одноразовая ссылка на бота, действует P-17 (BR-28). Ссылка в теле — это и есть адрес приглашения,
+        отдельного `Location` нет. Повтор с тем же ключом возвращает ту же ссылку.
       responses:
         '201':
           description: Ссылка создана
@@ -581,6 +721,12 @@ paths:
                 expiresAt: '2026-10-21T12:00:00+03:00'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
   /v1/guides/{guideId}/approve:
     parameters:
       - $ref: '#/components/parameters/GuideId'
@@ -599,6 +745,13 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+      description: Подтвердить, что по ссылке пришёл тот самый гид (BR-28). Повтор возвращает 200 и того же гида.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
   /v1/guides/{guideId}/deactivate:
     parameters:
       - $ref: '#/components/parameters/GuideId'
@@ -606,7 +759,9 @@ paths:
       tags: [Гиды]
       operationId: deactivateGuide
       summary: Деактивировать гида
-      description: Будущие группы гида возвращаются в поиск, администратор получает список (BR-30).
+      description: |
+        Будущие группы гида возвращаются в поиск, администратор получает список (BR-30). Так же
+        оформляется отзыв гидом согласия на передачу телефона (BR-28). Повтор с тем же ключом возвращает тот же список.
       responses:
         '200':
           description: Гид деактивирован
@@ -627,13 +782,22 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
   /v1/parameters/{code}:
     put:
       tags: [Настройки]
       operationId: setParameter
       summary: Изменить параметр
-      description: P-01 и P-06 меняются только релизом (NFR-14), для них ответ 422.
+      description: |
+        P-01 и P-06 меняются только релизом (NFR-14), для них ответ 422. Длительности — ISO 8601
+        (`PT10M`), время суток — `HH:MM`. Изменение попадает в журнал параметров (NFR-11).
       parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
         - name: code
           in: path
           required: true
@@ -656,10 +820,12 @@ paths:
       responses:
         '200':
           description: Параметр изменён, действует для новых групп
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '422':
-          description: Параметр меняется только релизом
+          description: Параметр меняется только релизом или ключ использован с другим телом
           content:
             application/problem+json:
               schema:
@@ -670,7 +836,38 @@ paths:
                 status: 422
                 code: PARAMETER_READ_ONLY
                 traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
   /v1/duty-shifts:
+    get:
+      tags:
+        - Настройки
+      operationId: listDutyShifts
+      summary: График дежурств
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Дежурства в интервале
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DutyShift'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
     post:
       tags: [Настройки]
       operationId: createDutyShift
@@ -699,6 +896,13 @@ paths:
       responses:
         '201':
           description: Дежурство добавлено
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DutyShift'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '409':
@@ -713,6 +917,36 @@ paths:
                 status: 409
                 code: DUTY_OVERLAP
                 traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+      description: Повтор с тем же ключом возвращает то же дежурство, а не 409.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+  /v1/duty-shifts/{shiftId}:
+    parameters:
+      - name: shiftId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags:
+        - Настройки
+      operationId: deleteDutyShift
+      summary: Удалить дежурство
+      description: 'Идемпотентно: если дежурства уже нет, ответ 204. Ключ действия — как у всех изменяющих запросов.'
+      responses:
+        '204':
+          description: Дежурства нет
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
   /integrations/amocrm/webhook/{secret}:
     post:
       tags: [Интеграции]
@@ -753,7 +987,9 @@ paths:
       tags: [Интеграции]
       operationId: receiveTelegramUpdate
       summary: Обновление от Telegram
-      description: Нажатия кнопок и сообщения гидам. Дубли отсекаются по `update_id`.
+      description: |
+        Нажатия кнопок и сообщения гидам. Дубли отсекаются по `update_id`. В `callback_data` кнопок
+        предложения есть раунд поиска: нажатие из сообщения прошлого раунда отвечает «Предложение устарело».
       security:
         - telegramSecret: []
       requestBody:
@@ -771,7 +1007,7 @@ paths:
               update_id: 734119021
               callback_query:
                 id: '4382bfdwdsb323b2d9'
-                data: resp:3c1f2a9e-8b7d-4e6f-9a1b-2c3d4e5f6a70
+                data: resp:3c1f2a9e-8b7d-4e6f-9a1b-2c3d4e5f6a70:1
       responses:
         '200':
           description: Обновление принято
@@ -798,6 +1034,10 @@ components:
         type: string
         format: uuid
       example: 5f0e6a2b-7c1d-4e8f-9a3b-2c4d6e8f0a1b
+      description: |
+        Ключ одного действия администратора: панель создаёт его при нажатии и повторяет при всех ретраях.
+        Повтор с тем же ключом возвращает сохранённый ответ первого выполнения — до проверки `If-Match`.
+        Тот же ключ с другим телом — 422 `IDEMPOTENCY_KEY_REUSED`. Сервер помнит ключи 24 часа.
     IfMatch:
       name: If-Match
       in: header
@@ -840,6 +1080,11 @@ components:
       schema:
         type: string
       example: '"v3"'
+    Location:
+      description: Адрес созданного ресурса
+      schema:
+        type: string
+        format: uri-reference
   responses:
     ValidationError:
       description: Ошибка в данных
@@ -854,7 +1099,7 @@ components:
             code: VALIDATION_ERROR
             errors:
               - field: client.phone
-                message: Номер в формате +7XXXXXXXXXX
+                message: Номер в формате E.164, например +79991112233
             traceId: 4bf92f3577b34da6a3ce929d0e0e4736
     Unauthorized:
       description: Нужно войти
@@ -893,21 +1138,40 @@ components:
             code: VERSION_CONFLICT
             traceId: 4bf92f3577b34da6a3ce929d0e0e4736
     PreconditionRequired:
-      description: Нет If-Match
+      description: Нет If-Match или Idempotency-Key
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
           example:
             type: https://dispatch.tours.example/problems/precondition-required
-            title: Нужна версия ресурса
+            title: Нужны версия ресурса и ключ действия
             status: 428
             code: PRECONDITION_REQUIRED
+            traceId: 4bf92f3577b34da6a3ce929d0e0e4736
+    IdempotencyKeyReused:
+      description: Ключ уже использован с другим телом запроса
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://dispatch.tours.example/problems/idempotency-key-reused
+            title: Этот ключ уже использован для другого действия
+            status: 422
+            code: IDEMPOTENCY_KEY_REUSED
             traceId: 4bf92f3577b34da6a3ce929d0e0e4736
   schemas:
     GroupStatus:
       type: string
-      enum: [SEARCHING, ASSIGNED, CONFIRMED, COMPLETED, NOT_HELD, CANCELLED]
+      enum:
+        - SEARCHING
+        - ASSIGNED
+        - CONFIRMED
+        - COMPLETED
+        - NOT_HELD
+        - CANCELLED
+        - HANDED_OVER
     Messenger:
       type: string
       enum: [TELEGRAM, WHATSAPP, MAX]
@@ -989,7 +1253,7 @@ components:
           type: [string, 'null']
         phone:
           type: string
-          pattern: '^\+7\d{10}$'
+          pattern: '^\+[1-9]\d{7,14}$'
         messenger:
           $ref: '#/components/schemas/Messenger'
     BookingCreate:
@@ -1087,6 +1351,21 @@ components:
             $ref: '#/components/schemas/GroupSummary'
         version:
           type: integer
+        cancelReason:
+          type:
+            - string
+            - 'null'
+          enum:
+            - CLIENT
+            - WEATHER
+            - GUIDE_ILLNESS
+            - CRM_CANCELLED
+            - CRM_DELETED
+            - OTHER
+            - null
+        crmResyncRequired:
+          type: boolean
+          description: 'Аварийная отмена в панели: правку нужно повторить в amoCRM (BR-04)'
     Group:
       type: object
       required: [id, bookingId, status, startsAt, endsAt, participants, version]
@@ -1113,6 +1392,27 @@ components:
             - type: 'null'
         version:
           type: integer
+        searchRound:
+          type: integer
+          description: 'Раунд поиска: растёт при каждом возврате группы в поиск'
+        confirmedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        closedReason:
+          type:
+            - string
+            - 'null'
+          enum:
+            - BOOKING_CANCELLED
+            - SURPLUS
+            - PARTNER
+            - null
+        partnerName:
+          type:
+            - string
+            - 'null'
     GroupEvent:
       type: object
       required: [at, actor, toStatus]
@@ -1132,6 +1432,16 @@ components:
         guideId:
           type: [string, 'null']
           format: uuid
+        fromGuideId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        reason:
+          type:
+            - string
+            - 'null'
+          description: Причина отказа, снятия или отмены
     Escalation:
       type: object
       required: [id, reason, status, openedAt]
@@ -1142,12 +1452,21 @@ components:
         groupId:
           type: [string, 'null']
           format: uuid
+        assignmentId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: 'Назначение, о котором сигнал: при замене гида — новое'
         bookingId:
           type: [string, 'null']
           format: uuid
         reason:
           type: string
           enum: [NO_GUIDE, NO_CONFIRMATION, REPLACEMENT_REQUESTED, NOTICE_NOT_SENT, GUIDE_BLOCKED_BOT]
+          description: |
+            NO_GUIDE — гид не найден; NO_CONFIRMATION — нет подтверждения выхода; REPLACEMENT_REQUESTED — гид просит замену;
+            NOTICE_NOT_SENT — отписка не отправлена к сроку, получают все администраторы; GUIDE_BLOCKED_BOT — гид заблокировал бота
         status:
           type: string
           enum: [OPEN, ACKED, RESOLVED]
@@ -1156,9 +1475,31 @@ components:
           format: date-time
         comment:
           type: [string, 'null']
+        ackedBy:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        ackedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        resolvedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
     ClientNotice:
       type: object
-      required: [id, bookingId, kind, messenger, text, guidesAssigned]
+      required:
+        - id
+        - bookingId
+        - kind
+        - messenger
+        - text
+        - guidesAssigned
+        - dueAt
       properties:
         id:
           type: string
@@ -1180,12 +1521,19 @@ components:
           description: false — отписка готова без гида, крайний срок наступил (BR-15)
         text:
           type: string
+          description: |
+            До отправки текст собирается из актуальных данных при каждом чтении: смена гида или места сбора
+            попадает в него сама. После отметки «Отправлено» — текст, который ушёл клиенту
         sentAt:
           type: [string, 'null']
           format: date-time
         channel:
           type: [string, 'null']
           enum: [TELEGRAM, WHATSAPP, MAX, CALL, null]
+        dueAt:
+          type: string
+          format: date-time
+          description: 'Крайний срок: P-11 накануне, для заявки день в день — за P-26 до начала (BR-16)'
     Guide:
       type: object
       required: [id, fullName, status]
@@ -1225,13 +1573,15 @@ components:
             - START_IN_PAST
             - ROUTE_NOT_FOUND
             - BOOKING_FROM_CRM
-            - OVERLAP_CONFIRMATION_REQUIRED
+            - GUIDE_BUSY
             - GROUP_NOT_ASSIGNABLE
             - GUIDE_NOT_ACTIVE
             - VERSION_CONFLICT
             - PRECONDITION_REQUIRED
             - PARAMETER_READ_ONLY
             - DUTY_OVERLAP
+            - GROUP_NOT_SEARCHING
+            - IDEMPOTENCY_KEY_REUSED
         traceId:
           type: string
         overlaps:
@@ -1258,3 +1608,23 @@ components:
                 type: string
               message:
                 type: string
+    DutyShift:
+      type: object
+      required:
+        - id
+        - adminId
+        - from
+        - to
+      properties:
+        id:
+          type: string
+          format: uuid
+        adminId:
+          type: string
+          format: uuid
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time

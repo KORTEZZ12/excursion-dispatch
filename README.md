@@ -1,41 +1,85 @@
 # Диспетчер экскурсий
 
-Сервис координации гидов для экскурсионного агентства. Заявка превращается в группы, гиды получают предложения в Telegram-боте, система напоминает им о группах, накануне готовит отписку для клиента и алертит  администратора, когда что-то пошло не так.
+[![Проверки спецификации](https://github.com/KORTEZZ12/excursion-dispatch/actions/workflows/spec-checks.yml/badge.svg)](https://github.com/KORTEZZ12/excursion-dispatch/actions/workflows/spec-checks.yml)
 
-Доменные правила взяты из моего опыта работы гидом и интервью с коллегами. [как устроена работа](docs/00-process.md).
+Портфолио системного аналитика: полный цикл аналитики сервиса для экскурсионной службы — от интервью с гидами до исполнимой спецификации, которую проверяет CI.
 
-**Статус:** итерации 1 и 2 из 4 — исследование, требования, системный дизайн. Следующий шаг — MVP. [CHANGELOG](CHANGELOG.md).
+Сервис координирует гидов. Заявка из amoCRM превращается в группы, гиды получают предложения в Telegram-боте, система напоминает им о группах, накануне готовит администратору отписку для клиента и зовёт дежурного, когда что-то пошло не так.
+
+**Статус:** итерации 1 и 2 из 4 — исследование, требования, системный дизайн — и независимое ревью. Следующий шаг — MVP первого релиза. [CHANGELOG](CHANGELOG.md).
+
+## Автор и роль
+
+Кирилл Фадеев, системный аналитик. Я сам работаю гидом, поэтому доменные правила взяты из практики, а боли проверены на интервью с коллегами: 3 администратора и 12 гидов.
+
+Что делал я: исследование и интервью, решения D-01–D-16, ревью черновиков, приёмку. Черновики артефактов и независимое ревью делают ИИ-агенты, роли и границы — в [устройстве работы](docs/00-process.md).
+
+## Если у вас 5 минут
+
+1. **Как исследование изменило решение.** Правило «кто первым откликнулся» 10 из 12 гидов назвали нечестным: Telegram у всех работает через VPN с разной задержкой. Его заменило окно откликов и выбор гида с наименьшей нагрузкой — [D-11](docs/decisions/decision-log.md), [ADR-002](docs/decisions/adr/ADR-002-response-window.md).
+2. **Независимое ревью и что с ним сделано.** 42 замечания, 12 критических, у каждого — где исправлено и что ещё ждёт заказчика — [реестр](docs/reviews/2026-10-27-iteration-2/README.md).
+3. **Правила, которые проверяет база.** 32 исполняемые проверки: у гида нет пересекающихся групп, повтор нажатия не создаёт второй отклик, замена гида не наследует подтверждение — [модель данных](docs/design/data-model.md).
+4. **Процессы под Camunda 8.8** — [BPMN](docs/bpmn), проходят линтер Camunda без замечаний.
+5. **Контракт API** с каталогом ошибок и реакцией панели на каждую — [документация в браузере](https://kortezz12.github.io/excursion-dispatch/api/).
 
 ## Проблема
 
-Группы доходят до гидов через общий Telegram-чат и личные сообщения администраторов. Сообщения теряются в ленте, гиды забывают про группы, а уточнить детали не всегда есть у кого. [AS-IS](docs/research/as-is.md).
+Группы доходят до гидов через общий Telegram-чат и личные сообщения администраторов. Сообщение о назначении уезжает вверх в личной переписке, гиды забывают про группы, а группы достаются тем, у кого быстрее доходят уведомления. [AS-IS](docs/research/as-is.md).
 
 ## Что показало исследование
 
-Группы теряются в личной переписке с администратором. А администраторам вечерние сообщения гидам уходит 2–2,5 часа в день. Около 6 групп в месяц передают партнёрам, потому что гид не нашёлся. Подробно в [итогах исследования](docs/research/findings.md).
+- Группы теряются не в общем чате, как я предполагал, а в личной переписке с администратором: так забывали группу 9 из 12 гидов.
+- На вечерние сообщения гидам у администраторов уходит 2–2,5 часа в день.
+- Около 6 групп в месяц передают партнёрам, потому что гид не нашёлся.
+
+Что в данных ещё не сходится и как это проверяем — в [итогах исследования](docs/research/findings.md#что-не-сходится-и-как-проверяем).
 
 ![AS-IS](docs/bpmn/as-is-dispatch.svg)
 
-Документация API в браузере: [kortezz12.github.io/excursion-dispatch/api](https://kortezz12.github.io/excursion-dispatch/api/).
+## Как устроено
+
+[Архитектура](docs/design/architecture.md) — бот, панель, планировщик, очередь отправки, PostgreSQL, интеграции с amoCRM и Telegram. Доска администратора:
+
+![Доска групп](docs/design/board-mockup.svg)
+
+## Надёжность
+
+Решения, о которых обычно спрашивают в финтехе и на нагруженных проектах:
+- **Идемпотентность.** Все изменяющие запросы панели — с `Idempotency-Key`: повтор после обрыва связи возвращает первый результат, а не ошибку. Вебхуки дедуплицируются по ключу события и `update_id`.
+- **Конкурентные правки.** `ETag` и `If-Match` в API, раунды поиска и исключающие ограничения в базе: одно нажатие — одно действие, и только в своём раунде.
+- **Inbox и outbox.** Вебхук amoCRM сохраняется и обрабатывается асинхронно, данные — из API ([ADR-001](docs/decisions/adr/ADR-001-webhook-as-signal.md)). Сообщения в Telegram уходят через очередь с ограничением скорости, пределом попыток и сроком годности.
+- **Тихий отказ.** Если сводка не ушла к 19:05, администраторы получают тревогу не через Telegram (NFR-16).
 
 ## Карта артефактов
 
-| Артефакт | Где | Статус |
+| Артефакт | Где | Версия |
 |---|---|---|
-| Как устроена работа | [docs/00-process.md](docs/00-process.md) | v0.1 |
-| AS-IS и боли | [docs/research/as-is.md](docs/research/as-is.md), [схема](docs/bpmn/as-is-dispatch.bpmn) | v0.1 |
-| Гипотезы, гайд, итоги и протоколы интервью | [docs/research](docs/research) | v0.2 |
-| Видение, метрики, границы MVP | [docs/requirements/vision.md](docs/requirements/vision.md) | v0.1 |
-| Бизнес-правила и параметры | [docs/requirements/business-rules.md](docs/requirements/business-rules.md) | v0.1 |
-| Процессы TO-BE (Camunda 8) | [docs/bpmn](docs/bpmn) | v0.1 |
-| Бэклог с критериями приёмки | [docs/requirements/backlog.md](docs/requirements/backlog.md) | v0.1 |
-| Нефункциональные требования | [docs/requirements/nfr.md](docs/requirements/nfr.md) | v0.1 |
-| Глоссарий | [docs/requirements/glossary.md](docs/requirements/glossary.md) | v0.1 |
-| Журнал решений | [docs/decisions/decision-log.md](docs/decisions/decision-log.md) | v0.1 |
-| Статусная модель группы | [docs/design/group-states.md](docs/design/group-states.md) | v0.3 |
-| Модель данных, DDL, проверки | [docs/design/data-model.md](docs/design/data-model.md) | v0.3 |
-| Sequence-диаграммы | [docs/design/sequences.md](docs/design/sequences.md) | v0.3 |
-| OpenAPI и каталог ошибок | [docs/api](docs/api) | v0.3 |
-| Интеграции: amoCRM, Telegram | [docs/integrations](docs/integrations) | v0.3 |
-| ADR | [docs/decisions/adr](docs/decisions/adr) | v0.3 |
+| Как устроена работа | [docs/00-process.md](docs/00-process.md) | 0.2 |
+| AS-IS и боли | [docs/research/as-is.md](docs/research/as-is.md), [схема](docs/bpmn/as-is-dispatch.bpmn) | 0.2 |
+| Гипотезы, гайд, итоги и протоколы интервью | [docs/research](docs/research) | 0.4 |
+| Видение, метрики, бизнес-кейс, релизы | [docs/requirements/vision.md](docs/requirements/vision.md) | 0.4 |
+| Бизнес-правила и параметры | [docs/requirements/business-rules.md](docs/requirements/business-rules.md) | 0.4 |
+| Бэклог с критериями приёмки | [docs/requirements/backlog.md](docs/requirements/backlog.md) | 0.4 |
+| Нефункциональные требования | [docs/requirements/nfr.md](docs/requirements/nfr.md) | 0.4 |
+| Глоссарий | [docs/requirements/glossary.md](docs/requirements/glossary.md) | 0.4 |
+| Журнал решений | [docs/decisions/decision-log.md](docs/decisions/decision-log.md) | 0.4 |
+| ADR | [docs/decisions/adr](docs/decisions/adr) | 0.4 |
+| Процессы TO-BE (Camunda 8.8) | [docs/bpmn](docs/bpmn) | 0.4 |
+| Архитектура и макет доски | [docs/design/architecture.md](docs/design/architecture.md) | 0.4 |
+| Статусная модель группы | [docs/design/group-states.md](docs/design/group-states.md) | 0.4 |
+| Модель данных, DDL, проверки | [docs/design/data-model.md](docs/design/data-model.md) | 0.4 |
+| Sequence-диаграммы | [docs/design/sequences.md](docs/design/sequences.md) | 0.4 |
+| OpenAPI и каталог ошибок | [docs/api](docs/api) | 0.4 |
+| Интеграции: amoCRM, Telegram | [docs/integrations](docs/integrations) | 0.4 |
+| Независимое ревью итерации 2 | [docs/reviews](docs/reviews/2026-10-27-iteration-2/README.md) | 27.10.2026 |
 | MVP | — | итерация 3 |
+
+## Как проверить локально
+
+```bash
+createdb ed_check
+psql -d ed_check -v ON_ERROR_STOP=1 -f docs/design/ddl.sql -f docs/design/ddl-checks.sql
+npx @redocly/cli@1 lint docs/api/openapi.yaml
+cd tools && npm ci && node bpmn-lint.mjs ../docs/bpmn/*.bpmn && cd ..
+python3 tools/check_links.py
+```
