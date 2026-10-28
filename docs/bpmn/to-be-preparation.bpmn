@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.8.0" id="Definitions_Preparation" targetNamespace="http://bpmn.io/schema/bpmn" exporter="excursion-dispatch" exporterVersion="0.1">
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.8.0" id="Definitions_Preparation" targetNamespace="http://bpmn.io/schema/bpmn" exporter="excursion-dispatch" exporterVersion="0.4">
   <bpmn:collaboration id="Collaboration_Preparation">
     <bpmn:participant id="P_Guide" name="Гид (Telegram-бот)">
       <bpmn:participantMultiplicity minimum="2" maximum="100" />
@@ -7,29 +7,34 @@
     <bpmn:participant id="P_Disp" name="Диспетчер экскурсий" processRef="group-preparation" />
     <bpmn:messageFlow id="M1" sourceRef="S_Request" targetRef="P_Guide" name="запрос с кнопками" />
     <bpmn:messageFlow id="M2" sourceRef="P_Guide" targetRef="S_Confirmed" name="«Подтвердить выход»" />
-    <bpmn:messageFlow id="M3" sourceRef="P_Guide" targetRef="S_Replace" name="«Попросить замену»" />
+    <bpmn:messageFlow id="M3" sourceRef="P_Guide" targetRef="ESR_Start" name="«Попросить замену» в любой момент назначения" />
   </bpmn:collaboration>
   <bpmn:process id="group-preparation" name="Подготовка группы к экскурсии" isExecutable="true">
     <bpmn:laneSet id="LaneSet_group_preparation">
-      <bpmn:lane id="L_Admin" name="Дежурный администратор">
-        <bpmn:flowNodeRef>A_Decide</bpmn:flowNodeRef>
-        <bpmn:flowNodeRef>A_End</bpmn:flowNodeRef>
-        <bpmn:flowNodeRef>B_NoReact</bpmn:flowNodeRef>
-      </bpmn:lane>
       <bpmn:lane id="L_System" name="Система">
         <bpmn:flowNodeRef>S_Start</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>S_ReqTime</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S_CheckNeed</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S_Need</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>S_Request</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>S_EBG</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>S_Confirmed</bpmn:flowNodeRef>
-        <bpmn:flowNodeRef>S_OK</bpmn:flowNodeRef>
-        <bpmn:flowNodeRef>S_Replace</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S_Join1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S_Join2</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S_WaitStart</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S_End</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>S_Deadline</bpmn:flowNodeRef>
-        <bpmn:flowNodeRef>S_Merge</bpmn:flowNodeRef>
-        <bpmn:flowNodeRef>S_Esc</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S_EscNoConf</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S_CloseEsc</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>ES</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="L_Admin" name="Дежурный администратор">
+        <bpmn:flowNodeRef>A_Decide</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>B_LateConfirm</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>B_NoReact</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>S_NotifyAll</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>S_AllNotified</bpmn:flowNodeRef>
-        <bpmn:flowNodeRef>ES</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>ESR</bpmn:flowNodeRef>
       </bpmn:lane>
     </bpmn:laneSet>
     <bpmn:startEvent id="S_Start" name="Гид назначен">
@@ -40,44 +45,38 @@
       <bpmn:outgoing>F2</bpmn:outgoing>
       <bpmn:timerEventDefinition id="S_ReqTime_def"><bpmn:timeDate xsi:type="bpmn:tFormalExpression">=confirmRequestAt</bpmn:timeDate></bpmn:timerEventDefinition>
     </bpmn:intermediateCatchEvent>
-    <bpmn:sendTask id="S_Request" name="Запросить подтверждение выхода">
-      <bpmn:extensionElements><zeebe:taskDefinition type="request-confirmation" /></bpmn:extensionElements>
+    <bpmn:serviceTask id="S_CheckNeed" name="Проверить, нужен ли запрос">
+      <bpmn:extensionElements><zeebe:taskDefinition type="check-confirmation-needed" /></bpmn:extensionElements>
       <bpmn:incoming>F2</bpmn:incoming>
       <bpmn:outgoing>F3</bpmn:outgoing>
-    </bpmn:sendTask>
-    <bpmn:eventBasedGateway id="S_EBG" name="Ждать ответ гида">
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="S_Need" name="Нужен запрос?" default="F5">
       <bpmn:incoming>F3</bpmn:incoming>
       <bpmn:outgoing>F4</bpmn:outgoing>
+      <bpmn:outgoing>F5</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sendTask id="S_Request" name="Запросить подтверждение выхода">
+      <bpmn:extensionElements><zeebe:taskDefinition type="request-confirmation" /></bpmn:extensionElements>
+      <bpmn:incoming>F4</bpmn:incoming>
       <bpmn:outgoing>F6</bpmn:outgoing>
+    </bpmn:sendTask>
+    <bpmn:eventBasedGateway id="S_EBG" name="Ждать ответ гида">
+      <bpmn:incoming>F6</bpmn:incoming>
       <bpmn:outgoing>F7</bpmn:outgoing>
+      <bpmn:outgoing>F9</bpmn:outgoing>
     </bpmn:eventBasedGateway>
     <bpmn:intermediateCatchEvent id="S_Confirmed" name="Выход подтверждён">
-      <bpmn:incoming>F4</bpmn:incoming>
-      <bpmn:outgoing>F5</bpmn:outgoing>
+      <bpmn:incoming>F7</bpmn:incoming>
+      <bpmn:outgoing>F8</bpmn:outgoing>
       <bpmn:messageEventDefinition id="S_Confirmed_def" messageRef="Msg_Confirmed" />
     </bpmn:intermediateCatchEvent>
-    <bpmn:endEvent id="S_OK" name="Гид подтвердил выход">
-      <bpmn:incoming>F5</bpmn:incoming>
-    </bpmn:endEvent>
-    <bpmn:intermediateCatchEvent id="S_Replace" name="Гид просит замену">
-      <bpmn:extensionElements><zeebe:ioMapping><zeebe:output source='="REPLACEMENT_REQUESTED"' target="escalationReason" /></zeebe:ioMapping></bpmn:extensionElements>
-      <bpmn:incoming>F6</bpmn:incoming>
-      <bpmn:outgoing>F8</bpmn:outgoing>
-      <bpmn:messageEventDefinition id="S_Replace_def" messageRef="Msg_Replace" />
-    </bpmn:intermediateCatchEvent>
     <bpmn:intermediateCatchEvent id="S_Deadline" name="Срок подтверждения истёк">
-      <bpmn:extensionElements><zeebe:ioMapping><zeebe:output source='="NO_CONFIRMATION"' target="escalationReason" /></zeebe:ioMapping></bpmn:extensionElements>
-      <bpmn:incoming>F7</bpmn:incoming>
-      <bpmn:outgoing>F9</bpmn:outgoing>
-      <bpmn:timerEventDefinition id="S_Deadline_def"><bpmn:timeDate xsi:type="bpmn:tFormalExpression">=confirmDeadlineAt</bpmn:timeDate></bpmn:timerEventDefinition>
-    </bpmn:intermediateCatchEvent>
-    <bpmn:exclusiveGateway id="S_Merge" name="Нужен администратор">
-      <bpmn:incoming>F8</bpmn:incoming>
       <bpmn:incoming>F9</bpmn:incoming>
       <bpmn:outgoing>F10</bpmn:outgoing>
-    </bpmn:exclusiveGateway>
-    <bpmn:serviceTask id="S_Esc" name="Создать эскалацию по причине">
-      <bpmn:extensionElements><zeebe:taskDefinition type="create-escalation" /></bpmn:extensionElements>
+      <bpmn:timerEventDefinition id="S_Deadline_def"><bpmn:timeDate xsi:type="bpmn:tFormalExpression">=confirmDeadlineAt</bpmn:timeDate></bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:serviceTask id="S_EscNoConf" name="Создать эскалацию «Нет подтверждения»">
+      <bpmn:extensionElements><zeebe:taskDefinition type="create-escalation" /><zeebe:taskHeaders><zeebe:header key="reason" value="NO_CONFIRMATION" /></zeebe:taskHeaders></bpmn:extensionElements>
       <bpmn:incoming>F10</bpmn:incoming>
       <bpmn:outgoing>F11</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -86,218 +85,378 @@
       <bpmn:incoming>F11</bpmn:incoming>
       <bpmn:outgoing>F12</bpmn:outgoing>
     </bpmn:userTask>
-    <bpmn:endEvent id="A_End" name="Решение принято">
-      <bpmn:incoming>F12</bpmn:incoming>
-    </bpmn:endEvent>
-    <bpmn:boundaryEvent id="B_NoReact" name="Нет реакции дежурного" attachedToRef="A_Decide" cancelActivity="false">
-      <bpmn:outgoing>F15</bpmn:outgoing>
+    <bpmn:boundaryEvent id="B_LateConfirm" name="Гид подтвердил после срока" attachedToRef="A_Decide">
+      <bpmn:outgoing>F13</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="B_LateConfirm_def" messageRef="Msg_Confirmed" />
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="S_CloseEsc" name="Закрыть эскалацию: причина устранена">
+      <bpmn:extensionElements><zeebe:taskDefinition type="resolve-escalation" /><zeebe:taskHeaders><zeebe:header key="reason" value="NO_CONFIRMATION" /></zeebe:taskHeaders></bpmn:extensionElements>
+      <bpmn:incoming>F13</bpmn:incoming>
+      <bpmn:outgoing>F14</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:boundaryEvent id="B_NoReact" name="Нет реакции дежурного" cancelActivity="false" attachedToRef="A_Decide">
+      <bpmn:outgoing>F18</bpmn:outgoing>
       <bpmn:timerEventDefinition id="B_NoReact_def"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">=dutyAckTimeout</bpmn:timeDuration></bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
     <bpmn:sendTask id="S_NotifyAll" name="Оповестить всех администраторов">
       <bpmn:extensionElements><zeebe:taskDefinition type="notify-all-admins" /></bpmn:extensionElements>
-      <bpmn:incoming>F15</bpmn:incoming>
-      <bpmn:outgoing>F16</bpmn:outgoing>
+      <bpmn:incoming>F18</bpmn:incoming>
+      <bpmn:outgoing>F19</bpmn:outgoing>
     </bpmn:sendTask>
     <bpmn:endEvent id="S_AllNotified" name="Все администраторы оповещены">
+      <bpmn:incoming>F19</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:exclusiveGateway id="S_Join1">
+      <bpmn:incoming>F5</bpmn:incoming>
+      <bpmn:incoming>F8</bpmn:incoming>
+      <bpmn:incoming>F14</bpmn:incoming>
+      <bpmn:outgoing>F15</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:exclusiveGateway id="S_Join2">
+      <bpmn:incoming>F12</bpmn:incoming>
+      <bpmn:incoming>F15</bpmn:incoming>
+      <bpmn:outgoing>F16</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:intermediateCatchEvent id="S_WaitStart" name="Экскурсия началась">
       <bpmn:incoming>F16</bpmn:incoming>
+      <bpmn:outgoing>F17</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="S_WaitStart_def"><bpmn:timeDate xsi:type="bpmn:tFormalExpression">=startAt</bpmn:timeDate></bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:endEvent id="S_End" name="Подготовка завершена">
+      <bpmn:incoming>F17</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:subProcess id="ES" name="Назначение снято или изменено" triggeredByEvent="true">
-            <bpmn:startEvent id="ES_Start" name="Назначение снято, изменено или группа отменена">
-        <bpmn:outgoing>F13</bpmn:outgoing>
+      <bpmn:startEvent id="ES_Start" name="Назначение снято, изменено или группа отменена">
+        <bpmn:outgoing>F20</bpmn:outgoing>
         <bpmn:messageEventDefinition id="ES_Start_def" messageRef="Msg_Ended" />
       </bpmn:startEvent>
-            <bpmn:serviceTask id="ES_Inval" name="Пометить сообщения гиду неактуальными">
+      <bpmn:serviceTask id="ES_Inval" name="Пометить сообщения гиду неактуальными">
         <bpmn:extensionElements><zeebe:taskDefinition type="invalidate-guide-messages" /></bpmn:extensionElements>
-        <bpmn:incoming>F13</bpmn:incoming>
-        <bpmn:outgoing>F14</bpmn:outgoing>
+        <bpmn:incoming>F20</bpmn:incoming>
+        <bpmn:outgoing>F21</bpmn:outgoing>
       </bpmn:serviceTask>
-            <bpmn:endEvent id="ES_End" name="Подготовка остановлена">
-        <bpmn:incoming>F14</bpmn:incoming>
+      <bpmn:endEvent id="ES_End" name="Подготовка остановлена">
+        <bpmn:incoming>F21</bpmn:incoming>
       </bpmn:endEvent>
-            <bpmn:sequenceFlow id="F13" sourceRef="ES_Start" targetRef="ES_Inval" />
-            <bpmn:sequenceFlow id="F14" sourceRef="ES_Inval" targetRef="ES_End" />
+      <bpmn:sequenceFlow id="F20" sourceRef="ES_Start" targetRef="ES_Inval" />
+      <bpmn:sequenceFlow id="F21" sourceRef="ES_Inval" targetRef="ES_End" />
+    </bpmn:subProcess>
+    <bpmn:subProcess id="ESR" name="Гид просит замену" triggeredByEvent="true">
+      <bpmn:startEvent id="ESR_Start" name="«Попросить замену»" isInterrupting="false">
+        <bpmn:outgoing>F22</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="ESR_Start_def" messageRef="Msg_Replace" />
+      </bpmn:startEvent>
+      <bpmn:serviceTask id="ESR_Esc" name="Создать эскалацию «Гид просит замену»">
+        <bpmn:extensionElements><zeebe:taskDefinition type="create-escalation" /><zeebe:taskHeaders><zeebe:header key="reason" value="REPLACEMENT_REQUESTED" /></zeebe:taskHeaders></bpmn:extensionElements>
+        <bpmn:incoming>F22</bpmn:incoming>
+        <bpmn:outgoing>F23</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:userTask id="ESR_Task" name="Найти замену или договориться с гидом">
+        <bpmn:extensionElements><zeebe:userTask /><zeebe:formDefinition externalReference="admin-panel/escalations" /><zeebe:assignmentDefinition candidateGroups="duty-admin" /></bpmn:extensionElements>
+        <bpmn:incoming>F23</bpmn:incoming>
+        <bpmn:outgoing>F24</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:boundaryEvent id="B_NoReact2" name="Нет реакции дежурного" cancelActivity="false" attachedToRef="ESR_Task">
+        <bpmn:outgoing>F25</bpmn:outgoing>
+        <bpmn:timerEventDefinition id="B_NoReact2_def"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">=dutyAckTimeout</bpmn:timeDuration></bpmn:timerEventDefinition>
+      </bpmn:boundaryEvent>
+      <bpmn:sendTask id="ESR_Notify" name="Оповестить всех администраторов">
+        <bpmn:extensionElements><zeebe:taskDefinition type="notify-all-admins" /></bpmn:extensionElements>
+        <bpmn:incoming>F25</bpmn:incoming>
+        <bpmn:outgoing>F26</bpmn:outgoing>
+      </bpmn:sendTask>
+      <bpmn:endEvent id="ESR_Notified" name="Все администраторы оповещены">
+        <bpmn:incoming>F26</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:endEvent id="ESR_End" name="Решение принято">
+        <bpmn:incoming>F24</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="F22" sourceRef="ESR_Start" targetRef="ESR_Esc" />
+      <bpmn:sequenceFlow id="F23" sourceRef="ESR_Esc" targetRef="ESR_Task" />
+      <bpmn:sequenceFlow id="F24" sourceRef="ESR_Task" targetRef="ESR_End" />
+      <bpmn:sequenceFlow id="F25" sourceRef="B_NoReact2" targetRef="ESR_Notify" />
+      <bpmn:sequenceFlow id="F26" sourceRef="ESR_Notify" targetRef="ESR_Notified" />
     </bpmn:subProcess>
     <bpmn:sequenceFlow id="F1" sourceRef="S_Start" targetRef="S_ReqTime" />
-    <bpmn:sequenceFlow id="F2" sourceRef="S_ReqTime" targetRef="S_Request" />
-    <bpmn:sequenceFlow id="F3" sourceRef="S_Request" targetRef="S_EBG" />
-    <bpmn:sequenceFlow id="F4" sourceRef="S_EBG" targetRef="S_Confirmed" />
-    <bpmn:sequenceFlow id="F5" sourceRef="S_Confirmed" targetRef="S_OK" />
-    <bpmn:sequenceFlow id="F6" sourceRef="S_EBG" targetRef="S_Replace" />
-    <bpmn:sequenceFlow id="F7" sourceRef="S_EBG" targetRef="S_Deadline" />
-    <bpmn:sequenceFlow id="F8" sourceRef="S_Replace" targetRef="S_Merge" />
-    <bpmn:sequenceFlow id="F9" sourceRef="S_Deadline" targetRef="S_Merge" />
-    <bpmn:sequenceFlow id="F10" sourceRef="S_Merge" targetRef="S_Esc" />
-    <bpmn:sequenceFlow id="F11" sourceRef="S_Esc" targetRef="A_Decide" />
-    <bpmn:sequenceFlow id="F12" sourceRef="A_Decide" targetRef="A_End" />
-    <bpmn:sequenceFlow id="F15" sourceRef="B_NoReact" targetRef="S_NotifyAll" />
-    <bpmn:sequenceFlow id="F16" sourceRef="S_NotifyAll" targetRef="S_AllNotified" />
+    <bpmn:sequenceFlow id="F2" sourceRef="S_ReqTime" targetRef="S_CheckNeed" />
+    <bpmn:sequenceFlow id="F3" sourceRef="S_CheckNeed" targetRef="S_Need" />
+    <bpmn:sequenceFlow id="F4" name="да" sourceRef="S_Need" targetRef="S_Request">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=needsConfirmation</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F5" name="нет" sourceRef="S_Need" targetRef="S_Join1" />
+    <bpmn:sequenceFlow id="F6" sourceRef="S_Request" targetRef="S_EBG" />
+    <bpmn:sequenceFlow id="F7" sourceRef="S_EBG" targetRef="S_Confirmed" />
+    <bpmn:sequenceFlow id="F8" sourceRef="S_Confirmed" targetRef="S_Join1" />
+    <bpmn:sequenceFlow id="F9" sourceRef="S_EBG" targetRef="S_Deadline" />
+    <bpmn:sequenceFlow id="F10" sourceRef="S_Deadline" targetRef="S_EscNoConf" />
+    <bpmn:sequenceFlow id="F11" sourceRef="S_EscNoConf" targetRef="A_Decide" />
+    <bpmn:sequenceFlow id="F12" sourceRef="A_Decide" targetRef="S_Join2" />
+    <bpmn:sequenceFlow id="F13" sourceRef="B_LateConfirm" targetRef="S_CloseEsc" />
+    <bpmn:sequenceFlow id="F14" sourceRef="S_CloseEsc" targetRef="S_Join1" />
+    <bpmn:sequenceFlow id="F15" sourceRef="S_Join1" targetRef="S_Join2" />
+    <bpmn:sequenceFlow id="F16" sourceRef="S_Join2" targetRef="S_WaitStart" />
+    <bpmn:sequenceFlow id="F17" sourceRef="S_WaitStart" targetRef="S_End" />
+    <bpmn:sequenceFlow id="F18" sourceRef="B_NoReact" targetRef="S_NotifyAll" />
+    <bpmn:sequenceFlow id="F19" sourceRef="S_NotifyAll" targetRef="S_AllNotified" />
+    <bpmn:textAnnotation id="Ann_Need"><bpmn:text>Запрос не нужен: назначение позже чем за P-07 до начала или выход на этот день уже подтверждён (BR-13)</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="As_Need" sourceRef="Ann_Need" targetRef="S_CheckNeed" />
+    <bpmn:textAnnotation id="Ann_Day"><bpmn:text>Подтверждение выхода переводит в «Гид подтвердил» все группы гида на этот день. Процесс живёт до начала экскурсии, чтобы «Попросить замену» работала всё назначение</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="As_Day" sourceRef="Ann_Day" targetRef="S_WaitStart" />
   </bpmn:process>
   <bpmn:message id="Msg_Confirmed" name="presence-confirmed">
-    <bpmn:extensionElements>
-      <zeebe:subscription correlationKey="=assignmentId" />
-    </bpmn:extensionElements>
+    <bpmn:extensionElements><zeebe:subscription correlationKey="=assignmentId" /></bpmn:extensionElements>
   </bpmn:message>
   <bpmn:message id="Msg_Replace" name="replacement-requested">
-    <bpmn:extensionElements>
-      <zeebe:subscription correlationKey="=assignmentId" />
-    </bpmn:extensionElements>
+    <bpmn:extensionElements><zeebe:subscription correlationKey="=assignmentId" /></bpmn:extensionElements>
   </bpmn:message>
   <bpmn:message id="Msg_Ended" name="assignment-ended">
-    <bpmn:extensionElements>
-      <zeebe:subscription correlationKey="=assignmentId" />
-    </bpmn:extensionElements>
+    <bpmn:extensionElements><zeebe:subscription correlationKey="=assignmentId" /></bpmn:extensionElements>
   </bpmn:message>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_Preparation">
+  <bpmndi:BPMNDiagram id="BPMNDiagram_Preparation">
+    <bpmndi:BPMNPlane id="BPMNPlane_Preparation" bpmnElement="Collaboration_Preparation">
       <bpmndi:BPMNShape id="P_Guide_di" bpmnElement="P_Guide" isHorizontal="true">
-        <dc:Bounds x="160" y="60" width="1940" height="60" />
+        <dc:Bounds x="160" y="60" width="1800" height="60" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="P_Disp_di" bpmnElement="P_Disp" isHorizontal="true">
-        <dc:Bounds x="160" y="170" width="1940" height="640" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="L_Admin_di" bpmnElement="L_Admin" isHorizontal="true">
-        <dc:Bounds x="190" y="170" width="1910" height="140" />
+        <dc:Bounds x="160" y="170" width="1800" height="860" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="L_System_di" bpmnElement="L_System" isHorizontal="true">
-        <dc:Bounds x="190" y="310" width="1910" height="500" />
+        <dc:Bounds x="190" y="170" width="1770" height="520" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="L_Admin_di" bpmnElement="L_Admin" isHorizontal="true">
+        <dc:Bounds x="190" y="690" width="1770" height="340" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_Start_di" bpmnElement="S_Start">
-        <dc:Bounds x="282" y="362" width="36" height="36" />
+        <dc:Bounds x="242" y="242" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_ReqTime_di" bpmnElement="S_ReqTime">
-        <dc:Bounds x="442" y="362" width="36" height="36" />
+        <dc:Bounds x="342" y="242" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_CheckNeed_di" bpmnElement="S_CheckNeed">
+        <dc:Bounds x="430" y="220" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Need_di" bpmnElement="S_Need" isMarkerVisible="true">
+        <dc:Bounds x="595" y="235" width="50" height="50" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_Request_di" bpmnElement="S_Request">
-        <dc:Bounds x="570" y="340" width="100" height="80" />
+        <dc:Bounds x="690" y="220" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_EBG_di" bpmnElement="S_EBG">
-        <dc:Bounds x="755" y="355" width="50" height="50" />
+        <dc:Bounds x="855" y="235" width="50" height="50" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_Confirmed_di" bpmnElement="S_Confirmed">
-        <dc:Bounds x="922" y="362" width="36" height="36" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_OK_di" bpmnElement="S_OK">
-        <dc:Bounds x="1082" y="362" width="36" height="36" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Replace_di" bpmnElement="S_Replace">
-        <dc:Bounds x="1002" y="482" width="36" height="36" />
+        <dc:Bounds x="972" y="242" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_Deadline_di" bpmnElement="S_Deadline">
-        <dc:Bounds x="922" y="602" width="36" height="36" />
+        <dc:Bounds x="972" y="382" width="36" height="36" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Merge_di" bpmnElement="S_Merge" isMarkerVisible="true">
-        <dc:Bounds x="1235" y="475" width="50" height="50" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Esc_di" bpmnElement="S_Esc">
-        <dc:Bounds x="1370" y="460" width="100" height="80" />
+      <bpmndi:BPMNShape id="S_EscNoConf_di" bpmnElement="S_EscNoConf">
+        <dc:Bounds x="1070" y="360" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="A_Decide_di" bpmnElement="A_Decide">
-        <dc:Bounds x="1530" y="200" width="100" height="80" />
+        <dc:Bounds x="1200" y="760" width="100" height="80" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="A_End_di" bpmnElement="A_End">
-        <dc:Bounds x="1722" y="222" width="36" height="36" />
+      <bpmndi:BPMNShape id="B_LateConfirm_di" bpmnElement="B_LateConfirm">
+        <dc:Bounds x="1262" y="742" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="B_NoReact_di" bpmnElement="B_NoReact">
-        <dc:Bounds x="1562" y="262" width="36" height="36" />
+        <dc:Bounds x="1232" y="822" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_CloseEsc_di" bpmnElement="S_CloseEsc">
+        <dc:Bounds x="1330" y="360" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_NotifyAll_di" bpmnElement="S_NotifyAll">
-        <dc:Bounds x="1530" y="580" width="100" height="80" />
+        <dc:Bounds x="1200" y="910" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_AllNotified_di" bpmnElement="S_AllNotified">
-        <dc:Bounds x="1722" y="602" width="36" height="36" />
+        <dc:Bounds x="1382" y="932" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Join1_di" bpmnElement="S_Join1" isMarkerVisible="true">
+        <dc:Bounds x="1355" y="235" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Join2_di" bpmnElement="S_Join2" isMarkerVisible="true">
+        <dc:Bounds x="1475" y="235" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_WaitStart_di" bpmnElement="S_WaitStart">
+        <dc:Bounds x="1602" y="242" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_End_di" bpmnElement="S_End">
+        <dc:Bounds x="1722" y="242" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="ES_di" bpmnElement="ES" isExpanded="true">
-        <dc:Bounds x="328" y="680" width="584" height="120" />
+        <dc:Bounds x="250" y="480" width="450" height="180" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="ES_Start_di" bpmnElement="ES_Start">
-        <dc:Bounds x="418" y="722" width="36" height="36" />
+        <dc:Bounds x="292" y="552" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="ES_Inval_di" bpmnElement="ES_Inval">
-        <dc:Bounds x="570" y="700" width="100" height="80" />
+        <dc:Bounds x="400" y="530" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="ES_End_di" bpmnElement="ES_End">
-        <dc:Bounds x="786" y="722" width="36" height="36" />
+        <dc:Bounds x="582" y="552" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ESR_di" bpmnElement="ESR" isExpanded="true">
+        <dc:Bounds x="250" y="720" width="820" height="290" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ESR_Start_di" bpmnElement="ESR_Start">
+        <dc:Bounds x="292" y="782" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ESR_Esc_di" bpmnElement="ESR_Esc">
+        <dc:Bounds x="390" y="760" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ESR_Task_di" bpmnElement="ESR_Task">
+        <dc:Bounds x="570" y="760" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="B_NoReact2_di" bpmnElement="B_NoReact2">
+        <dc:Bounds x="602" y="822" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ESR_Notify_di" bpmnElement="ESR_Notify">
+        <dc:Bounds x="730" y="900" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ESR_Notified_di" bpmnElement="ESR_Notified">
+        <dc:Bounds x="922" y="922" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ESR_End_di" bpmnElement="ESR_End">
+        <dc:Bounds x="782" y="782" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Ann_Need_di" bpmnElement="Ann_Need">
+        <dc:Bounds x="380" y="330" width="230" height="64" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Ann_Day_di" bpmnElement="Ann_Day">
+        <dc:Bounds x="1560" y="330" width="300" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="F1_di" bpmnElement="F1">
-        <di:waypoint x="318" y="380" />
-        <di:waypoint x="442" y="380" />
+        <di:waypoint x="278" y="260" />
+        <di:waypoint x="342" y="260" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F2_di" bpmnElement="F2">
-        <di:waypoint x="478" y="380" />
-        <di:waypoint x="570" y="380" />
+        <di:waypoint x="378" y="260" />
+        <di:waypoint x="430" y="260" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F3_di" bpmnElement="F3">
-        <di:waypoint x="670" y="380" />
-        <di:waypoint x="755" y="380" />
+        <di:waypoint x="530" y="260" />
+        <di:waypoint x="595" y="260" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F4_di" bpmnElement="F4">
-        <di:waypoint x="805" y="380" />
-        <di:waypoint x="922" y="380" />
+        <di:waypoint x="645" y="260" />
+        <di:waypoint x="690" y="260" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F5_di" bpmnElement="F5">
-        <di:waypoint x="958" y="380" />
-        <di:waypoint x="1082" y="380" />
+        <di:waypoint x="620" y="235" />
+        <di:waypoint x="620" y="200" />
+        <di:waypoint x="1380" y="200" />
+        <di:waypoint x="1380" y="235" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F6_di" bpmnElement="F6">
-        <di:waypoint x="780" y="405" />
-        <di:waypoint x="780" y="500" />
-        <di:waypoint x="1002" y="500" />
+        <di:waypoint x="790" y="260" />
+        <di:waypoint x="855" y="260" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F7_di" bpmnElement="F7">
-        <di:waypoint x="780" y="405" />
-        <di:waypoint x="780" y="620" />
-        <di:waypoint x="922" y="620" />
+        <di:waypoint x="905" y="260" />
+        <di:waypoint x="972" y="260" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F8_di" bpmnElement="F8">
-        <di:waypoint x="1038" y="500" />
-        <di:waypoint x="1235" y="500" />
+        <di:waypoint x="1008" y="260" />
+        <di:waypoint x="1355" y="260" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F9_di" bpmnElement="F9">
-        <di:waypoint x="958" y="620" />
-        <di:waypoint x="1260" y="620" />
-        <di:waypoint x="1260" y="525" />
+        <di:waypoint x="880" y="285" />
+        <di:waypoint x="880" y="400" />
+        <di:waypoint x="972" y="400" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10">
-        <di:waypoint x="1285" y="500" />
-        <di:waypoint x="1370" y="500" />
+        <di:waypoint x="1008" y="400" />
+        <di:waypoint x="1070" y="400" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F11_di" bpmnElement="F11">
-        <di:waypoint x="1470" y="500" />
-        <di:waypoint x="1500" y="500" />
-        <di:waypoint x="1500" y="240" />
-        <di:waypoint x="1530" y="240" />
+        <di:waypoint x="1120" y="440" />
+        <di:waypoint x="1120" y="800" />
+        <di:waypoint x="1200" y="800" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F12_di" bpmnElement="F12">
-        <di:waypoint x="1630" y="240" />
-        <di:waypoint x="1722" y="240" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="F15_di" bpmnElement="F15">
-        <di:waypoint x="1580" y="298" />
-        <di:waypoint x="1580" y="580" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="F16_di" bpmnElement="F16">
-        <di:waypoint x="1630" y="620" />
-        <di:waypoint x="1722" y="620" />
+        <di:waypoint x="1300" y="800" />
+        <di:waypoint x="1500" y="800" />
+        <di:waypoint x="1500" y="285" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F13_di" bpmnElement="F13">
-        <di:waypoint x="454" y="740" />
-        <di:waypoint x="570" y="740" />
+        <di:waypoint x="1280" y="742" />
+        <di:waypoint x="1280" y="600" />
+        <di:waypoint x="1380" y="600" />
+        <di:waypoint x="1380" y="440" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F14_di" bpmnElement="F14">
-        <di:waypoint x="670" y="740" />
-        <di:waypoint x="786" y="740" />
+        <di:waypoint x="1380" y="360" />
+        <di:waypoint x="1380" y="285" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F15_di" bpmnElement="F15">
+        <di:waypoint x="1405" y="260" />
+        <di:waypoint x="1475" y="260" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F16_di" bpmnElement="F16">
+        <di:waypoint x="1525" y="260" />
+        <di:waypoint x="1602" y="260" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F17_di" bpmnElement="F17">
+        <di:waypoint x="1638" y="260" />
+        <di:waypoint x="1722" y="260" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F18_di" bpmnElement="F18">
+        <di:waypoint x="1250" y="858" />
+        <di:waypoint x="1250" y="910" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F19_di" bpmnElement="F19">
+        <di:waypoint x="1300" y="950" />
+        <di:waypoint x="1382" y="950" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F20_di" bpmnElement="F20">
+        <di:waypoint x="328" y="570" />
+        <di:waypoint x="400" y="570" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F21_di" bpmnElement="F21">
+        <di:waypoint x="500" y="570" />
+        <di:waypoint x="582" y="570" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F22_di" bpmnElement="F22">
+        <di:waypoint x="328" y="800" />
+        <di:waypoint x="390" y="800" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F23_di" bpmnElement="F23">
+        <di:waypoint x="490" y="800" />
+        <di:waypoint x="570" y="800" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F24_di" bpmnElement="F24">
+        <di:waypoint x="670" y="800" />
+        <di:waypoint x="782" y="800" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F25_di" bpmnElement="F25">
+        <di:waypoint x="620" y="858" />
+        <di:waypoint x="620" y="940" />
+        <di:waypoint x="730" y="940" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F26_di" bpmnElement="F26">
+        <di:waypoint x="830" y="940" />
+        <di:waypoint x="922" y="940" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="As_Need_di" bpmnElement="As_Need">
+        <di:waypoint x="495" y="330" />
+        <di:waypoint x="480" y="300" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="As_Day_di" bpmnElement="As_Day">
+        <di:waypoint x="1710" y="330" />
+        <di:waypoint x="1620" y="278" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="M1_di" bpmnElement="M1">
-        <di:waypoint x="620" y="340" />
-        <di:waypoint x="620" y="120" />
+        <di:waypoint x="740" y="220" />
+        <di:waypoint x="740" y="120" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="M2_di" bpmnElement="M2">
-        <di:waypoint x="940" y="120" />
-        <di:waypoint x="940" y="362" />
+        <di:waypoint x="990" y="120" />
+        <di:waypoint x="990" y="242" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="M3_di" bpmnElement="M3">
-        <di:waypoint x="1020" y="120" />
-        <di:waypoint x="1020" y="482" />
+        <di:waypoint x="225" y="120" />
+        <di:waypoint x="225" y="800" />
+        <di:waypoint x="292" y="800" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
