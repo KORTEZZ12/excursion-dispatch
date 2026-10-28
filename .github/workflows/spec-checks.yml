@@ -1,0 +1,59 @@
+name: Проверки спецификации
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ddl:
+    name: Модель данных — ddl-checks
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: DDL и проверки бизнес-правил
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -f docs/design/ddl.sql -f docs/design/ddl-checks.sql | tee result.txt
+          grep -q 'Все проверки пройдены' result.txt
+
+  openapi:
+    name: Контракт API — Redocly lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npx --yes @redocly/cli@1 lint docs/api/openapi.yaml
+
+  bpmn:
+    name: Процессы — bpmnlint, Camunda 8.8
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: tools
+      - run: node bpmn-lint.mjs ../docs/bpmn/*.bpmn
+        working-directory: tools
+
+  links:
+    name: Ссылки в документах
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/check_links.py
