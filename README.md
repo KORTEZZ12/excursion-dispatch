@@ -12,11 +12,11 @@
 
 Кирилл Фадеев, системный аналитик. Я сам работаю гидом, поэтому доменные правила взяты из практики, а боли проверены на интервью с коллегами: 3 администратора и 12 гидов.
 
-Что делал я: исследование и интервью, решения D-01–D-16, ревью черновиков, приёмку. Черновики артефактов и независимое ревью делают ИИ-агенты, роли и границы — в [устройстве работы](docs/00-process.md).
+Что делал я: исследование, интервью и опрос гидов, решения D-01–D-18, ревью черновиков, приёмку. Решения по MVP подтвердил владелец службы — [протокол встречи](docs/research/meetings/2026-10-28-owner.md). Черновики артефактов и независимое ревью делают ИИ-агенты, роли и границы — в [устройстве работы](docs/00-process.md).
 
 ## Если у вас 5 минут
 
-1. **Как исследование изменило решение.** Правило «кто первым откликнулся» 10 из 12 гидов назвали нечестным: Telegram у всех работает через VPN с разной задержкой. Его заменило окно откликов и выбор гида с наименьшей нагрузкой — [D-11](docs/decisions/decision-log.md), [ADR-002](docs/decisions/adr/ADR-002-response-window.md).
+1. **Как исследование изменило решение.** Правило «кто первым откликнулся» 10 из 12 гидов назвали нечестным: Telegram у всех работает через VPN с разной задержкой. Его заменило окно откликов, а как выбирать гида внутри окна, решили сами гиды в опросе: жребий среди откликнувшихся — [D-11 и D-17](docs/decisions/decision-log.md), [ADR-002](docs/decisions/adr/ADR-002-response-window.md).
 2. **Независимое ревью и что с ним сделано.** 42 замечания, 12 критических, у каждого — где исправлено и что ещё ждёт заказчика — [реестр](docs/reviews/2026-10-27-iteration-2/README.md).
 3. **Правила, которые проверяет база.** 32 исполняемые проверки: у гида нет пересекающихся групп, повтор нажатия не создаёт второй отклик, замена гида не наследует подтверждение — [модель данных](docs/design/data-model.md).
 4. **Процессы под Camunda 8.8** — [BPMN](docs/bpmn), проходят линтер Camunda без замечаний.
@@ -30,6 +30,7 @@
 
 - Группы теряются не в общем чате, как я предполагал, а в личной переписке с администратором: так забывали группу 9 из 12 гидов.
 - На вечерние сообщения гидам у администраторов уходит 2–2,5 часа в день.
+- Как выбирать гида, если откликнулись несколько, гиды решили сами в опросе: 24 из 32 против гонки, большинство из них — за жребий.
 - Около 6 групп в месяц передают партнёрам, потому что гид не нашёлся.
 
 Что в данных ещё не сходится и как это проверяем — в [итогах исследования](docs/research/findings.md#что-не-сходится-и-как-проверяем).
@@ -56,19 +57,19 @@
 |---|---|---|
 | Как устроена работа | [docs/00-process.md](docs/00-process.md) | 0.2 |
 | AS-IS и боли | [docs/research/as-is.md](docs/research/as-is.md), [схема](docs/bpmn/as-is-dispatch.bpmn) | 0.2 |
-| Гипотезы, гайд, итоги и протоколы интервью | [docs/research](docs/research) | 0.4 |
-| Видение, метрики, бизнес-кейс, релизы | [docs/requirements/vision.md](docs/requirements/vision.md) | 0.4 |
-| Бизнес-правила и параметры | [docs/requirements/business-rules.md](docs/requirements/business-rules.md) | 0.4 |
-| Бэклог с критериями приёмки | [docs/requirements/backlog.md](docs/requirements/backlog.md) | 0.4 |
+| Гипотезы, гайд, итоги и протоколы интервью | [docs/research](docs/research) | 0.5 |
+| Видение, метрики, бизнес-кейс, релизы | [docs/requirements/vision.md](docs/requirements/vision.md) | 0.5 |
+| Бизнес-правила и параметры | [docs/requirements/business-rules.md](docs/requirements/business-rules.md) | 0.5 |
+| Бэклог с критериями приёмки | [docs/requirements/backlog.md](docs/requirements/backlog.md) | 0.5 |
 | Нефункциональные требования | [docs/requirements/nfr.md](docs/requirements/nfr.md) | 0.4 |
-| Глоссарий | [docs/requirements/glossary.md](docs/requirements/glossary.md) | 0.4 |
-| Журнал решений | [docs/decisions/decision-log.md](docs/decisions/decision-log.md) | 0.4 |
-| ADR | [docs/decisions/adr](docs/decisions/adr) | 0.4 |
+| Глоссарий | [docs/requirements/glossary.md](docs/requirements/glossary.md) | 0.5 |
+| Журнал решений | [docs/decisions/decision-log.md](docs/decisions/decision-log.md) | 0.5 |
+| ADR | [docs/decisions/adr](docs/decisions/adr) | 0.5 |
 | Процессы TO-BE (Camunda 8.8) | [docs/bpmn](docs/bpmn) | 0.4 |
 | Архитектура и макет доски | [docs/design/architecture.md](docs/design/architecture.md) | 0.4 |
 | Статусная модель группы | [docs/design/group-states.md](docs/design/group-states.md) | 0.4 |
-| Модель данных, DDL, проверки | [docs/design/data-model.md](docs/design/data-model.md) | 0.4 |
-| Sequence-диаграммы | [docs/design/sequences.md](docs/design/sequences.md) | 0.4 |
+| Модель данных, DDL, проверки | [docs/design/data-model.md](docs/design/data-model.md) | 0.5 |
+| Sequence-диаграммы | [docs/design/sequences.md](docs/design/sequences.md) | 0.5 |
 | OpenAPI и каталог ошибок | [docs/api](docs/api) | 0.4 |
 | Интеграции: amoCRM, Telegram | [docs/integrations](docs/integrations) | 0.4 |
 | Независимое ревью итерации 2 | [docs/reviews](docs/reviews/2026-10-27-iteration-2/README.md) | 27.10.2026 |
