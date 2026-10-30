@@ -1,4 +1,4 @@
--- Диспетчер экскурсий: модель данных, версия 0.4
+-- Диспетчер экскурсий: модель данных, версия 0.5
 -- PostgreSQL 16. Одна база сервиса, схема dispatch. Описание — data-model.md, проверки — ddl-checks.sql.
 -- Функции здесь — исполняемая спецификация правил, в сервисе их можно реализовать кодом с теми же гарантиями.
 -- Коды F-xx в комментариях — замечания ревью итерации 2 (docs/reviews/2026-10-27-iteration-2).
@@ -326,31 +326,25 @@ CREATE TABLE dispatch.group_response (         -- нажатие «Хочу вз
     PRIMARY KEY (group_id, search_round, guide_id)
 );
 
--- Выбор гида при закрытии окна: среди откликнувшихся в текущем раунде — с наименьшим числом групп
--- на неделе этой группы (пн–вс по Москве), при равенстве — случайно.
--- Кандидат с пересечением отсеивается исключающим ограничением, берётся следующий.
+-- Выбор гида при закрытии окна (D-17): жребий среди откликнувшихся в текущем раунде.
+-- Кандидат с пересечением отсеивается исключающим ограничением, жребий идёт дальше.
 -- Возвращает выбранного гида или NULL, если назначить некого или группа уже назначена
 CREATE FUNCTION dispatch.select_guide(p_group uuid, p_buffer interval DEFAULT NULL)
 RETURNS uuid LANGUAGE plpgsql AS $$
 DECLARE
     g dispatch.excursion_group%ROWTYPE;
     cand record;
-    week_start timestamptz;
     buffer interval := COALESCE(p_buffer, dispatch.param_interval('P-02', interval '30 minutes'));
 BEGIN
     SELECT * INTO g FROM dispatch.excursion_group WHERE id = p_group FOR UPDATE;
     IF g.status <> 'SEARCHING' THEN RETURN NULL; END IF;     -- например, администратор уже назначил вручную
-    week_start := date_trunc('week', g.starts_at AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow';
     FOR cand IN
-        SELECT r.guide_id,
-               (SELECT count(*) FROM dispatch.excursion_group x
-                 WHERE x.guide_id = r.guide_id AND x.status NOT IN ('CANCELLED', 'HANDED_OVER')
-                   AND x.starts_at >= week_start AND x.starts_at < week_start + interval '7 days') AS week_groups
+        SELECT r.guide_id
           FROM dispatch.group_response r
           JOIN dispatch.guide gd ON gd.id = r.guide_id
          WHERE r.group_id = p_group AND r.search_round = g.search_round AND r.withdrawn_at IS NULL
            AND gd.status = 'ACTIVE' AND gd.bot_blocked_at IS NULL
-         ORDER BY week_groups, random()
+         ORDER BY random()                                      -- жребий: порядок нажатий не важен
     LOOP
         BEGIN
             UPDATE dispatch.excursion_group
@@ -359,7 +353,7 @@ BEGIN
              WHERE id = p_group;
             RETURN cand.guide_id;
         EXCEPTION WHEN exclusion_violation THEN
-            CONTINUE;                                           -- у этого гида пересечение, пробуем следующего
+            CONTINUE;                                           -- у этого гида пересечение, жребий идёт дальше
         END;
     END LOOP;
     RETURN NULL;
