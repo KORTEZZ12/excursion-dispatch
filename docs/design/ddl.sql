@@ -219,6 +219,7 @@ CREATE TABLE dispatch.group_transition (
 );
 INSERT INTO dispatch.group_transition VALUES
     ('SEARCHING', 'ASSIGNED'), ('SEARCHING', 'CANCELLED'), ('SEARCHING', 'HANDED_OVER'),
+    ('SEARCHING', 'CONFIRMED'),   -- BR-13: назначение позже чем за P-07 до начала — сразу подтверждение (итерация 3, M-02)
     ('ASSIGNED', 'CONFIRMED'), ('ASSIGNED', 'SEARCHING'), ('ASSIGNED', 'COMPLETED'),
     ('ASSIGNED', 'NOT_HELD'), ('ASSIGNED', 'CANCELLED'),
     ('CONFIRMED', 'ASSIGNED'), ('CONFIRMED', 'COMPLETED'), ('CONFIRMED', 'NOT_HELD'),
