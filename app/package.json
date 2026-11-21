@@ -1,0 +1,20 @@
+{
+  "name": "excursion-dispatch-mvp",
+  "private": true,
+  "description": "MVP релиза 1 диспетчера экскурсий: API панели, бот, очередь отправки, приём событий amoCRM, планировщик",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/main.mjs",
+    "demo": "node test/demo.mjs",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs"
+  },
+  "dependencies": {
+    "pg": "8.13.1"
+  },
+  "devDependencies": {
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
+    "yaml": "2.6.1"
+  }
+}
