@@ -56,10 +56,11 @@ export async function collectDigests(c, now) {
     const unconfirmed = groups.filter((g) => g.status === 'ASSIGNED');
     if (unconfirmed.length && needsEveningRequest(unconfirmed[0], p)) {
       const { rowCount } = await c.query(
-        'INSERT INTO dispatch.confirmation_request (guide_id, day, requested_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [guideId, tomorrow, now]);
+        'INSERT INTO dispatch.confirmation_request (guide_id, day, requested_at, assignment_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+        [guideId, tomorrow, now, unconfirmed[0].assignment_id]);
       if (rowCount) {
         const deadline = deadlineOf(unconfirmed[0], now, p);
-        await enqueue(c, { chatId: groups[0].guide_chat, dedupKey: `confirm:${guideId}:${tomorrow}`, body: T.confirmRequest(unconfirmed, deadline),
+        await enqueue(c, { chatId: groups[0].guide_chat, dedupKey: `confirm:${guideId}:${tomorrow}:${unconfirmed[0].assignment_id}`, body: T.confirmRequest(unconfirmed, deadline),
           at: now, expiresAt: unconfirmed[0].starts_at, groupId: unconfirmed[0].id, assignmentId: unconfirmed[0].assignment_id });
       }
     }
@@ -83,22 +84,25 @@ export async function digestWatchdog(c, now) {
   }
 }
 
-// check-confirmation-needed + request-confirmation: один запрос на гида и день (BR-13, D-15)
+// check-confirmation-needed + request-confirmation: один запрос на гида и день, перед первой группой (BR-13, D-15).
+// Кнопка запроса подтверждает все неподтверждённые группы дня. Если назначение, на которое она ведёт,
+// больше не ждёт подтверждения — гида сняли или группу перенесли, — уходит новый запрос (SAR-1)
 export async function requestConfirmations(c, now) {
   const p = await params(c);
   const today = mskDate(now);
   let sent = 0;
   for (const day of [today, addDays(today, 1)]) {
     for (const [guideId, groups] of byGuide(await groupsOn(c, day, ['ASSIGNED', 'CONFIRMED']))) {
-      if (groups.some((g) => g.status === 'CONFIRMED')) continue;          // выход на этот день уже подтверждён
-      const unconfirmed = groups.filter((g) => g.starts_at > now);
-      if (!unconfirmed.length) continue;
-      const first = unconfirmed[0];
+      const pending = groups.filter((g) => g.status === 'ASSIGNED' && g.starts_at > now);
+      if (!pending.length) continue;
+      const first = pending[0];
       if (now < requestTime(first, p)) continue;
-      const { rowCount } = await c.query(
-        'INSERT INTO dispatch.confirmation_request (guide_id, day, requested_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [guideId, day, now]);
-      if (!rowCount) continue;
-      await enqueue(c, { chatId: first.guide_chat, dedupKey: `confirm:${guideId}:${day}`, body: T.confirmRequest(unconfirmed, deadlineOf(first, now, p)),
+      const { rows: [cr] } = await c.query('SELECT * FROM dispatch.confirmation_request WHERE guide_id = $1 AND day = $2', [guideId, day]);
+      if (cr && pending.some((g) => g.assignment_id === cr.assignment_id)) continue;   // действующий запрос ещё ведёт на неподтверждённую группу
+      await c.query(
+        `INSERT INTO dispatch.confirmation_request (guide_id, day, requested_at, assignment_id) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (guide_id, day) DO UPDATE SET requested_at = $3, assignment_id = $4`, [guideId, day, now, first.assignment_id]);
+      await enqueue(c, { chatId: first.guide_chat, dedupKey: `confirm:${guideId}:${day}:${first.assignment_id}`, body: T.confirmRequest(pending, deadlineOf(first, now, p)),
         at: now, expiresAt: first.starts_at, urgentFor: first.starts_at, groupId: first.id, assignmentId: first.assignment_id });
       sent += 1;
     }

@@ -131,3 +131,22 @@ describe('Перезапуск, NFR-03', () => {
     assert.match(env.tg.last(g1.tg).text, /^Подтвердите выход до 13:00/);
   });
 });
+
+describe('Обновление схемы', () => {
+  it('База, созданная до учёта миграций, получает только новые файлы схемы', async () => {
+    const env = await createEnv();
+    try {
+      await env.db.query('DROP TABLE public.schema_migration');
+      await env.db.query('ALTER TABLE dispatch.confirmation_request DROP COLUMN assignment_id');
+      await env.db.query('ALTER TABLE dispatch.attention DROP COLUMN resolved_by, DROP COLUMN comment');
+      const { migrate } = await import('../src/migrate.mjs');
+      const url = env.db.pool.options.connectionString;
+      assert.equal(await migrate(url), 1, 'применён только 002');
+      assert.equal(await migrate(url), 0, 'повторный запуск ничего не делает');
+      const { rows } = await env.db.query("SELECT column_name FROM information_schema.columns WHERE table_name = 'confirmation_request' AND column_name = 'assignment_id'");
+      assert.equal(rows.length, 1);
+    } finally {
+      await env.close();
+    }
+  });
+});
