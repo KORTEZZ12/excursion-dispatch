@@ -57,3 +57,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 tools/check_links.py
+
+  mvp:
+    name: MVP релиза 1 — приёмочные тесты
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - name: Протокол приёмки — каждый сценарий релиза 1 покрыт тестом, файл актуален
+        run: |
+          node test/acceptance.mjs
+          git diff --exit-code -- ../docs/mvp/acceptance.md || { echo "Запустите node test/acceptance.mjs и закоммитьте docs/mvp/acceptance.md"; exit 1; }
+      - name: Приёмочные тесты против PostgreSQL 16, подмен Telegram и amoCRM, с проверкой по OpenAPI
+        env:
+          TEST_PG: postgres://postgres:postgres@localhost:5432
+        run: npm test

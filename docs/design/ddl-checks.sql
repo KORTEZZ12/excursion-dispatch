@@ -516,4 +516,26 @@ DO $$ BEGIN
   RAISE NOTICE 'ok  F-22 изменения параметров в журнале';
 END $$;
 
+-- BR-13: позднее назначение группы без гида сразу считается подтверждением выхода.
+-- До итерации 3 перехода SEARCHING → CONFIRMED не было, и база отвергала именно этот случай (M-02)
+DO $$
+DECLARE r uuid; cl uuid; b uuid; g uuid; gd uuid;
+BEGIN
+  INSERT INTO dispatch.route (name, duration, meeting_point, meeting_point_map_url)
+  VALUES ('M-02 маршрут', '1 hour', 'Сбор', 'https://example.org/map') RETURNING id INTO r;
+  INSERT INTO dispatch.client (full_name, phone_e164, messenger) VALUES ('Клиент', '+79990000000', 'TELEGRAM') RETURNING id INTO cl;
+  INSERT INTO dispatch.booking (source, client_id, route_id, starts_at, adults, payment_method, expected_amount, status)
+  VALUES ('PANEL', cl, r, now() + interval '50 minutes', 3, 'CASH', 3000, 'ACTIVE') RETURNING id INTO b;
+  INSERT INTO dispatch.excursion_group (booking_id, seq, participants, starts_at, ends_at, status)
+  VALUES (b, 1, 3, now() + interval '50 minutes', now() + interval '110 minutes', 'SEARCHING') RETURNING id INTO g;
+  INSERT INTO dispatch.guide (full_name, phone_e164, telegram_user_id, telegram_chat_id, status, phone_share_consent_at)
+  VALUES ('M-02 гид', '+79990000001', 990002, 990002, 'ACTIVE', now()) RETURNING id INTO gd;
+  UPDATE dispatch.excursion_group
+     SET status = 'CONFIRMED', guide_id = gd, busy_range = tstzrange(starts_at, ends_at + interval '30 minutes', '[)')
+   WHERE id = g;
+  ASSERT (SELECT confirmed_at IS NOT NULL AND assignment_id IS NOT NULL FROM dispatch.excursion_group WHERE id = g);
+  ASSERT (SELECT from_status || '→' || to_status FROM dispatch.group_event WHERE group_id = g ORDER BY id DESC LIMIT 1) = 'SEARCHING→CONFIRMED';
+  RAISE NOTICE 'ok  M-02 позднее назначение — сразу подтверждение выхода';
+END $$;
+
 \echo 'Все проверки пройдены'

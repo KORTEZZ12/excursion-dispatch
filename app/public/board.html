@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Доска групп</title>
+<style>
+  :root { --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #667085; --line: #e4e7ec; --accent: #2f6fde;
+          --warn: #b54708; --warn-bg: #fef0c7; --bad: #b42318; --bad-bg: #fee4e2; --ok: #067647; --ok-bg: #dcfae6; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11151c; --card: #1a202b; --text: #e6e9ef; --muted: #98a2b3; --line: #2b3342; --accent: #7aa7ff;
+            --warn: #fdb022; --warn-bg: #3a2a0c; --bad: #f97066; --bad-bg: #3b1513; --ok: #47cd89; --ok-bg: #0f2e1f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 16px; border-bottom: 1px solid var(--line); background: var(--card); }
+  h1 { font-size: 18px; margin: 0 12px 0 0; }
+  input, button, select { font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
+  main { padding: 16px; max-width: 1100px; margin: 0 auto; }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  tr:last-child td { border-bottom: 0; }
+  .time { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 13px; white-space: nowrap; }
+  .SEARCHING { background: var(--bad-bg); color: var(--bad); }
+  .ASSIGNED { background: var(--warn-bg); color: var(--warn); }
+  .CONFIRMED, .COMPLETED { background: var(--ok-bg); color: var(--ok); }
+  .CANCELLED, .HANDED_OVER, .NOT_HELD { color: var(--muted); border: 1px solid var(--line); }
+  .esc { color: var(--bad); font-size: 13px; }
+  .muted { color: var(--muted); }
+  #msg { margin: 0 0 12px; min-height: 1.4em; }
+  @media (max-width: 720px) {
+    thead { display: none; }
+    table, tbody, tr, td { display: block; width: 100%; }
+    tr { border-bottom: 1px solid var(--line); padding: 8px 0; }
+    td { border: 0; padding: 4px 12px; }
+    td[data-label]::before { content: attr(data-label) ': '; color: var(--muted); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Доска групп</h1>
+  <input type="date" id="date" aria-label="Дата">
+  <label><input type="checkbox" id="attention"> Требуют внимания</label>
+  <button id="reload">Обновить</button>
+  <span class="muted" id="who"></span>
+</header>
+<main>
+  <p id="msg" role="status"></p>
+  <table>
+    <thead><tr><th>Время</th><th>Маршрут</th><th>Участники</th><th>Статус</th><th>Гид</th><th>Эскалации</th><th></th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+<script>
+const STATUS = { SEARCHING: 'Ищем гида', ASSIGNED: 'Гид назначен', CONFIRMED: 'Гид подтвердил', COMPLETED: 'Проведена', NOT_HELD: 'Не состоялась', CANCELLED: 'Отменена', HANDED_OVER: 'Передана партнёру' };
+const ESC = { NO_GUIDE: 'Гид не найден', NO_CONFIRMATION: 'Нет подтверждения', REPLACEMENT_REQUESTED: 'Просит замену', GUIDE_BLOCKED_BOT: 'Заблокировал бота' };
+let token = null;
+try { token = localStorage.getItem('dispatch-token'); } catch {}
+if (!token) { token = prompt('Токен администратора'); try { localStorage.setItem('dispatch-token', token); } catch {} }
+const $ = (id) => document.getElementById(id);
+const msg = (t) => { $('msg').textContent = t; };
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+async function api(method, path, body, headers = {}) {
+  const res = await fetch(path, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...headers }, body: body ? JSON.stringify(body) : undefined });
+  const data = res.status === 204 ? null : await res.json().catch(() => null);
+  if (!res.ok) throw Object.assign(new Error(data?.title ?? `Ошибка ${res.status}`), { data });
+  return data;
+}
+async function load() {
+  const date = $('date').value;
+  try {
+    const board = await api('GET', `/v1/board?date=${date}&attention=${$('attention').checked}`);
+    $('rows').innerHTML = board.groups.length ? board.groups.map((g) => `
+      <tr>
+        <td class="time">${g.startsAt.slice(11, 16)}</td>
+        <td>${esc(g.routeName)}</td>
+        <td data-label="Участников">${g.participants}</td>
+        <td><span class="pill ${g.status}">${STATUS[g.status]}</span></td>
+        <td data-label="Гид">${g.guide ? esc(g.guide.fullName) : '<span class="muted">не назначен</span>'}</td>
+        <td class="esc">${g.openEscalations.map((r) => ESC[r] ?? r).join('<br>')}</td>
+        <td>${['SEARCHING', 'ASSIGNED', 'CONFIRMED'].includes(g.status) ? `<button data-group="${g.groupId}" data-version="${g.version}">${g.guide ? 'Заменить' : 'Назначить'}</button>` : ''}</td>
+      </tr>`).join('') : '<tr><td colspan="7" class="muted">Групп нет</td></tr>';
+    msg('');
+  } catch (e) { msg(e.message); }
+}
+$('rows').addEventListener('click', async (ev) => {
+  const b = ev.target.closest('button[data-group]');
+  if (!b) return;
+  try {
+    const free = await api('GET', `/v1/guides?freeForGroup=${b.dataset.group}`);
+    if (!free.length) return msg('Свободных гидов на это время нет');
+    const pick = prompt(`Кого назначить?\n${free.map((g, i) => `${i + 1}. ${g.fullName}`).join('\n')}`);
+    const guide = free[Number(pick) - 1];
+    if (!guide) return;
+    await api('PUT', `/v1/groups/${b.dataset.group}/assignment`, { guideId: guide.id }, { 'Idempotency-Key': crypto.randomUUID(), 'If-Match': `"v${b.dataset.version}"` });
+    msg(`Назначен: ${guide.fullName}`);
+    load();
+  } catch (e) {
+    msg(e.data?.code === 'GUIDE_BUSY' ? `У гида пересечение: ${e.data.overlaps.map((o) => o.startsAt.slice(11, 16) + ' ' + (o.routeName ?? '')).join(', ')}` : e.message);
+  }
+});
+$('date').value = new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10);
+$('date').onchange = load; $('attention').onchange = load; $('reload').onclick = load;
+load();
+</script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Диспетчер экскурсий
-  version: 0.4.0
+  version: 0.5.0
   description: |
     API панели администратора и входящие вебхуки amoCRM и Telegram. Гиды работают
     через Telegram-бота, поэтому своего API у них нет. Соглашения — в [README](README.md).
@@ -78,6 +78,8 @@ paths:
                     noticeStatus: PENDING
                     openEscalations: [NO_GUIDE]
                     routeOverlaps: []
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /v1/bookings:
@@ -270,6 +272,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Booking'
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -326,6 +330,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Group'
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -396,6 +402,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Group'
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -499,6 +507,34 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+  /v1/attention:
+    get:
+      tags: [Доска]
+      operationId: listAttention
+      summary: Требует внимания
+      description: |
+        Заявки, которые диспетчер не смог обработать сам: в сделке amoCRM нет обязательных полей, маршрута нет
+        в справочнике, дата в прошлом, нет тарифа (US-01, BR-32), восстановление после аварийной отмены (BR-04),
+        экскурсия прошла, а этап сделки не «Проведена» (BR-36). У части пунктов заявки в диспетчере ещё нет —
+        тогда есть только `externalId` сделки.
+      responses:
+        '200':
+          description: Открытые пункты, новые первыми
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AttentionItem'
+              example:
+                - id: 2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e
+                  bookingId: null
+                  externalId: 7551167
+                  reason: ROUTE_NOT_FOUND
+                  detail: Маршрута «Ночная прогулка» нет в справочнике
+                  createdAt: '2026-10-22T10:30:00+03:00'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /v1/escalations:
     get:
       tags: [Эскалации]
@@ -519,6 +555,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Escalation'
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /v1/escalations/{escalationId}/ack:
@@ -574,6 +612,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Escalation'
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -684,6 +724,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Guide'
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
       parameters:
@@ -1209,6 +1251,9 @@ components:
           oneOf:
             - $ref: '#/components/schemas/GuideRef'
             - type: 'null'
+        version:
+          type: integer
+          description: Версия группы для `If-Match` при назначении и снятии гида с доски
         windowEndsAt:
           type: [string, 'null']
           format: date-time
@@ -1442,6 +1487,27 @@ components:
             - string
             - 'null'
           description: Причина отказа, снятия или отмены
+    AttentionItem:
+      type: object
+      required: [id, reason, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        bookingId:
+          type: [string, 'null']
+          format: uuid
+        externalId:
+          type: [integer, 'null']
+          description: id сделки amoCRM
+        reason:
+          type: string
+          enum: [CRM_FIELDS_MISSING, ROUTE_NOT_FOUND, START_IN_PAST, NO_TARIFF, RESYNC_CONFLICT, AUTO_COMPLETED]
+        detail:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
     Escalation:
       type: object
       required: [id, reason, status, openedAt]
