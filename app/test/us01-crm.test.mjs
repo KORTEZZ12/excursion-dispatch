@@ -138,6 +138,40 @@ describe('US-01. Группы из заявки CRM', () => {
     assert.equal(rows[0].n, 1, 'после восстановления событие обработано');
   });
 
+  it('SAR-3: пункт «Требует внимания» закрывается сам, когда сделка применилась, и вручную с комментарием', async () => {
+    const { id } = await env.crmBooking({ adults: 3, route: 'Неизвестный маршрут', startsAt: '2026-12-15T11:00:00+03:00' });
+    assert.ok((await env.api('GET', '/v1/attention')).body.some((a) => a.externalId === id));
+    env.clock.advance(60e3);
+    env.amo.lead({ id, adults: 3, startsAt: Date.parse('2026-12-15T11:00:00+03:00'), updatedAt: env.clock.now().getTime() });   // маршрут поправили в amoCRM
+    await env.amoWebhook('update', id, Math.floor(env.clock.now().getTime() / 1000));
+    await env.at();
+    assert.ok(!(await env.api('GET', '/v1/attention')).body.some((a) => a.externalId === id), 'сделка применилась — пункт закрыт');
+    const other = await env.crmBooking({ adults: 0, startsAt: '2026-12-15T12:00:00+03:00' });
+    const item = (await env.api('GET', '/v1/attention')).body.find((a) => a.externalId === other.id);
+    assert.equal((await env.api('POST', `/v1/attention/${item.id}/resolve`, { body: { comment: 'да' } })).status, 400);
+    const r = await env.api('POST', `/v1/attention/${item.id}/resolve`, { body: { comment: 'Клиент отказался, сделку закрыли' } });
+    assert.equal(r.body.comment, 'Клиент отказался, сделку закрыли');
+    assert.ok(r.body.resolvedAt);
+    assert.ok(!(await env.api('GET', '/v1/attention')).body.some((a) => a.id === item.id));
+  });
+
+  it('ADR-001: событие сделки, которое ждёт повтора, не обгоняют следующие события той же сделки', async () => {
+    const id = 7558888;
+    env.amo.down = true;
+    env.amo.lead({ id, adults: 3, startsAt: Date.parse('2026-12-16T11:00:00+03:00'), updatedAt: env.clock.now().getTime() });
+    await env.amoWebhook('add', id, 10);
+    await env.at();                                   // API не ответил, повтор через 1 мин
+    env.amo.down = false;
+    await env.amoWebhook('update', id, 11);
+    await env.at();
+    const { rows: ev } = await env.db.query("SELECT dedup_key, processed_at FROM dispatch.inbound_event WHERE dedup_key LIKE $1 ORDER BY dedup_key", [`amocrm:lead:${id}:%`]);
+    assert.deepEqual(ev.map((e) => e.processed_at), [null, null], 'обновление ждёт, пока не обработается создание');
+    env.clock.advance(60e3);
+    await env.at();
+    const { rows: done } = await env.db.query("SELECT result FROM dispatch.inbound_event WHERE dedup_key LIKE $1 ORDER BY processed_at, dedup_key", [`amocrm:lead:${id}:%`]);
+    assert.deepEqual(done.map((e) => e.result), ['CREATED', 'UNCHANGED']);
+  });
+
   it('NFR-09: вебхук с неверным секретом — 404, с чужим аккаунтом — событие не сохраняется', async () => {
     assert.equal(await env.amoWebhook('add', 1, 1, { secret: 'x'.repeat(32) }), 404);
     assert.equal(await env.amoWebhook('add', 2, 1, { subdomain: 'stranger' }), 200);

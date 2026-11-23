@@ -33,6 +33,9 @@
   .esc { color: var(--bad); font-size: 13px; }
   .muted { color: var(--muted); }
   #msg { margin: 0 0 12px; min-height: 1.4em; }
+  #alarms:empty { display: none; }
+  #alarms { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--bad-bg); color: var(--bad); }
+  #alarms p { margin: 2px 0; }
   @media (max-width: 720px) {
     thead { display: none; }
     table, tbody, tr, td { display: block; width: 100%; }
@@ -46,11 +49,12 @@
 <header>
   <h1>Доска групп</h1>
   <input type="date" id="date" aria-label="Дата">
-  <label><input type="checkbox" id="attention"> Требуют внимания</label>
+  <label><input type="checkbox" id="attention"> Проблемные группы</label>
   <button id="reload">Обновить</button>
   <span class="muted" id="who"></span>
 </header>
 <main>
+  <div id="alarms" role="alert"></div>
   <p id="msg" role="status"></p>
   <table>
     <thead><tr><th>Время</th><th>Маршрут</th><th>Участники</th><th>Статус</th><th>Гид</th><th>Эскалации</th><th></th></tr></thead>
@@ -88,6 +92,10 @@ async function load() {
       </tr>`).join('') : '<tr><td colspan="7" class="muted">Групп нет</td></tr>';
     msg('');
   } catch (e) { msg(e.message); }
+  try {
+    const alarms = await api('GET', '/v1/alarms');
+    $('alarms').innerHTML = alarms.map((a) => `<p><b>${a.at.slice(11, 16)}</b> ${esc(a.text)}</p>`).join('');
+  } catch {}
 }
 $('rows').addEventListener('click', async (ev) => {
   const b = ev.target.closest('button[data-group]');

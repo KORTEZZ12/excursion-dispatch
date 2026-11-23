@@ -1,5 +1,6 @@
 // Заявки из amoCRM (US-01, ADR-001). Вебхук — сигнал: тело сохраняется как есть и сразу 200,
 // сделка потом берётся из API. События одной сделки применяются строго по очереди.
+import { timingSafeEqual } from 'node:crypto';
 import { CrmUnavailable } from './clients.mjs';
 import { addMs, mskDate } from './time.mjs';
 import * as D from './domain.mjs';
@@ -7,9 +8,17 @@ import * as D from './domain.mjs';
 const ACTIONS = { add: 'add', update: 'update', status: 'status', delete: 'delete', restore: 'restore' };
 const RETRY = [60e3, 5 * 60e3, 15 * 60e3]; // повтор через 1, 5 и 15 мин, затем алерт
 
+// Сравнение секретов за постоянное время: по времени ответа секрет не подобрать
+export function sameSecret(given, expected) {
+  if (!expected || typeof given !== 'string') return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 // Приём вебхука. Неверный секрет — 404; чужой аккаунт — 200, но событие не сохраняется (NFR-09)
 export async function receiveWebhook(db, cfg, now, secret, rawBody) {
-  if (!cfg.webhookSecret || secret !== cfg.webhookSecret) return { status: 404, stored: 0 };
+  if (!sameSecret(secret, cfg.webhookSecret)) return { status: 404, stored: 0 };
   const form = new URLSearchParams(rawBody);
   if (cfg.subdomain && form.get('account[subdomain]') !== cfg.subdomain) return { status: 200, stored: 0 };
   let stored = 0;
@@ -92,6 +101,19 @@ async function attention(c, now, { bookingId = null, externalId = null, reason, 
 export async function applyLead(db, now, lead, contact, cfg) {
   const m = mapLead(lead, contact, cfg);
   return db.tx(async (c) => {
+    const result = await applyInTx(c);
+    // Сделка применилась — пункты «Требует внимания» по ней больше не актуальны (SAR-3)
+    if (!['ATTENTION', 'STALE', 'IGNORED'].includes(result)) {
+      await c.query(
+        `UPDATE dispatch.attention a SET resolved_at = $2, comment = 'Сделка применилась'
+          WHERE a.resolved_at IS NULL AND (a.reason <> 'AUTO_COMPLETED' OR $3 = 'COMPLETED')   -- «не проведена» закрывает только этап «Проведена»
+            AND (a.external_id = $1 OR a.booking_id IN (SELECT id FROM dispatch.booking WHERE source = 'AMOCRM' AND external_id = $1))`,
+        [m.externalId, now, result]);
+    }
+    return result;
+  });
+
+  async function applyInTx(c) {
     const { rows: [b] } = await c.query(
       "SELECT * FROM dispatch.booking WHERE source = 'AMOCRM' AND external_id = $1 FOR UPDATE", [m.externalId]);
     if (b && m.updatedAt < b.external_updated_at) return 'STALE';   // старое состояние не перетирает новое (NFR-04)
@@ -179,7 +201,7 @@ export async function applyLead(db, now, lead, contact, cfg) {
     if (m.startsAt.getTime() !== b.starts_at.getTime()) await D.rescheduleBooking(c, now, { bookingId: b.id, oldStart: b.starts_at });
     if (participants !== b.participants) await D.syncGroups(c, now, b.id);
     return r;
-  });
+  }
 }
 
 async function applyDeleted(db, now, externalId) {
@@ -204,9 +226,14 @@ export async function processInbound(db, client, cfg, clock) {
   let handled = 0;
   for (;;) {
     const now = clock.now();
+    // События одной сделки — строго по очереди (ADR-001): событие, которое ждёт повтора, не обгоняют следующие той же сделки
     const { rows: [ev] } = await db.query(
-      `SELECT * FROM dispatch.inbound_event WHERE processed_at IS NULL AND (next_attempt_at IS NULL OR next_attempt_at <= $1)
-        ORDER BY received_at, dedup_key LIMIT 1`, [now]);
+      `SELECT e.* FROM dispatch.inbound_event e
+        WHERE e.processed_at IS NULL AND (e.next_attempt_at IS NULL OR e.next_attempt_at <= $1)
+          AND NOT EXISTS (SELECT 1 FROM dispatch.inbound_event p
+                           WHERE p.processed_at IS NULL AND split_part(p.dedup_key, ':', 3) = split_part(e.dedup_key, ':', 3)
+                             AND (p.received_at, p.dedup_key) < (e.received_at, e.dedup_key))
+        ORDER BY e.received_at, e.dedup_key LIMIT 1`, [now]);
     if (!ev) return handled;
     handled += 1;
     const [, , id, action] = ev.dedup_key.split(':');
