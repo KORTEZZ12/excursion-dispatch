@@ -34,15 +34,25 @@ const lines = [
   '',
 ];
 const missing = [];
+const ambiguous = [];
 let covered = 0;
 for (const us of release1) {
   lines.push(`## ${us.id}. ${us.title}`, '', '| Сценарий | Тест |', '|---|---|');
   for (const sc of us.scenarios) {
-    const t = tests.find((x) => x.story === us.id && x.name.toLowerCase().includes(sc.toLowerCase()));
+    // Сначала — тест, который называет сценарий точно: «Сценарий: <имя>» и дальше пробел, тире, запятая или конец.
+    // Иначе — тест, в названии которого сценарий упомянут; если таких несколько, сопоставление неоднозначно
+    const name = sc.toLowerCase();
+    const own = tests.filter((x) => x.story === us.id);
+    const exact = own.filter((x) => new RegExp(`сценарий: ${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[ ,;—])`).test(x.name.toLowerCase()));
+    const loose = own.filter((x) => x.name.toLowerCase().includes(name));
+    const candidates = exact.length ? exact : loose;
+    if (candidates.length > 1) ambiguous.push(`${us.id}: ${sc} — ${candidates.map((x) => x.name).join(' | ')}`);
+    const t = candidates[0];
     if (t) covered += 1; else missing.push(`${us.id}: ${sc}`);
     lines.push(`| ${sc} | ${t ? `\`${t.file}\` — ${t.name}` : '**нет теста**'} |`);
   }
-  const extra = tests.filter((x) => x.story === us.id && !us.scenarios.some((sc) => x.name.toLowerCase().includes(sc.toLowerCase())));
+  const used = new Set(lines.filter((l) => l.startsWith('| ')).map((l) => l.split(' — ').slice(1).join(' — ').replace(/ \|$/, '')));
+  const extra = tests.filter((x) => x.story === us.id && !used.has(x.name));
   if (extra.length) {
     lines.push('', 'Кроме сценариев бэклога:', '');
     for (const t of extra) lines.push(`- \`${t.file}\` — ${t.name}`);
@@ -55,8 +65,9 @@ for (const t of other) lines.push(`- \`${t.file}\` — ${t.story}: ${t.name}`);
 lines.push('', `Итого: ${covered} сценариев бэклога из ${covered + missing.length} покрыты тестами, всего тестов — ${tests.length}.`, '');
 writeFileSync(new URL('docs/mvp/acceptance.md', root), lines.join('\n'));
 
-if (missing.length) {
-  console.error(`Сценарии без теста:\n${missing.join('\n')}`);
+if (missing.length || ambiguous.length) {
+  if (missing.length) console.error(`Сценарии без теста:\n${missing.join('\n')}`);
+  if (ambiguous.length) console.error(`Неоднозначное сопоставление:\n${ambiguous.join('\n')}`);
   process.exit(1);
 }
 console.log(`Протокол приёмки: ${covered} сценариев, ${tests.length} тестов`);

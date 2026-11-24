@@ -91,11 +91,14 @@ export async function notifyAdmins(c, now, body, key, urgentFor = null) {
   await tellAdmins(c, now, await activeAdmins(c), body, key, urgentFor);
 }
 
-// Резервный канал тревог — звонок всем администраторам (D-14, NFR-16). Провайдер не выбран (Q-06): журнал вызовов
+// Резервный канал тревог — звонок всем администраторам (D-14, NFR-16). Провайдер не выбран (Q-06), поэтому
+// вызов пишется в журнал, а тревогу видно в панели (GET /v1/alarms) и в Telegram администраторов (SAR-2).
+// Telegram — не замена звонку: если упал он, тревога останется только в журнале и на доске
 export async function alarmAll(c, now, kind, text) {
   for (const a of await activeAdmins(c)) {
     await c.query('INSERT INTO dispatch.alarm (at, admin_id, kind, text) VALUES ($1, $2, $3, $4)', [now, a.id, kind, text]);
   }
+  await notifyAdmins(c, now, { text: `Тревога: ${text}` }, `alarm:${kind}:${now.getTime()}`, now);
 }
 
 // ---------------------------------------------------------------- эскалации
@@ -236,7 +239,8 @@ export async function confirmAttendance(c, now, { assignmentId, guideId }) {
   const g = await groupByAssignment(c, assignmentId);
   if (!g || g.guide_id !== guideId) return { answer: 'Вы больше не ведёте эту группу' };
   if (FINAL.includes(g.status)) return { answer: 'Группа уже закрыта' };
-  if (g.status === 'CONFIRMED') return { answer: 'Выход уже подтверждён' };
+  // Подтверждаются все неподтверждённые группы гида в этот день, даже если кнопка ведёт на уже подтверждённую:
+  // после переноса одна из групп дня снова ждёт подтверждения (SAR-1)
   const { rows } = await c.query(
     `UPDATE dispatch.excursion_group SET status = 'CONFIRMED', confirmed_at = $3
       WHERE guide_id = $1 AND status = 'ASSIGNED' AND starts_at > $3
@@ -247,6 +251,7 @@ export async function confirmAttendance(c, now, { assignmentId, guideId }) {
     await invalidate(c, { assignmentId: r.assignment_id });
     await resolveEscalations(c, now, { assignmentId: r.assignment_id, reasons: ['NO_CONFIRMATION'], why: 'Гид подтвердил выход' });
   }
+  if (!rows.length) return { answer: 'Выход уже подтверждён' };
   return { answer: rows.length > 1 ? `Выход подтверждён на ${rows.length} группы` : 'Выход подтверждён', confirmed: rows.map((r) => r.id) };
 }
 

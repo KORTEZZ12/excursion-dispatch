@@ -71,6 +71,9 @@ describe('US-08. Сводка на завтра', () => {
     assert.equal(rows.length, 2, 'звонок каждому администратору');
     await env.at('2026-12-02T19:10:00+03:00');
     assert.equal((await env.db.query("SELECT * FROM dispatch.alarm WHERE kind = 'DIGEST_NOT_SENT'")).rows.length, 2, 'тревога одна на день');
+    const alarms = await env.api('GET', '/v1/alarms');
+    assert.deepEqual(alarms.body.map((a) => a.kind), ['DIGEST_NOT_SENT'], 'SAR-2: тревогу видно в панели');
+    assert.ok(env.tg.to(ADMIN_TG).some((m) => m.text.startsWith('Тревога: Сводки на завтра не отправлены')), 'и в Telegram администраторов');
   });
 });
 
@@ -177,6 +180,48 @@ describe('US-09. Подтверждение выхода', () => {
     assert.ok(msgs.some((t) => t.startsWith('Подтвердите выход')), 'запрос — со сводкой');
     await env.at('2026-12-02T07:00:00+03:00');
     assert.equal(env.tg.to(zoya.tg).filter((m) => m.text.startsWith('Подтвердите выход')).length, 1, 'утром второго запроса нет');
+  });
+
+  it('SAR-1: гида сняли после запроса и назначили на другую группу дня — уходит новый запрос, ложной эскалации нет', async () => {
+    const lev = await env.addGuide('Лев Мамонтов');
+    const { groups: [x] } = await env.crmBooking({ adults: 3, startsAt: '2026-12-03T14:00:00+03:00' });
+    const { groups: [y] } = await env.crmBooking({ adults: 3, startsAt: '2026-12-03T18:00:00+03:00' });
+    await env.assign(x.id, lev.id);
+    await env.at('2026-12-03T12:00:00+03:00');
+    await env.api('DELETE', `/v1/groups/${x.id}/assignment?reason=test`, { ifMatch: `"v${(await env.group(x.id)).version}"` });
+    await env.assign(y.id, lev.id);
+    await env.at('2026-12-03T15:59:00+03:00');
+    assert.equal(env.tg.to(lev.tg).filter((m) => m.text.startsWith('Подтвердите выход')).length, 1, 'до времени запроса новой группы — без нового запроса');
+    await env.at('2026-12-03T16:00:00+03:00');
+    const requests = env.tg.to(lev.tg).filter((m) => m.text.startsWith('Подтвердите выход'));
+    assert.equal(requests.length, 2);
+    assert.match(requests[1].text, /18:00/);
+    await press(env, lev, 'Подтвердить выход');
+    assert.equal((await env.group(y.id)).status, 'CONFIRMED');
+    await env.at('2026-12-03T17:00:00+03:00');
+    assert.equal((await env.escalations("reason = 'NO_CONFIRMATION'")).length, 0);
+  });
+
+  it('SAR-1: перенесли подтверждённую группу, другая группа дня уже подтверждена — новый запрос, и старая кнопка тоже подтверждает', async () => {
+    const mila = await env.addGuide('Мила Осипова');
+    const { groups: [a] } = await env.crmBooking({ adults: 3, route: SHORT_ROUTE, startsAt: '2026-12-03T10:00:00+03:00' });
+    const { id: leadB, groups: [b] } = await env.crmBooking({ adults: 3, route: SHORT_ROUTE, startsAt: '2026-12-03T13:00:00+03:00' });
+    await env.assign(a.id, mila.id);
+    await env.assign(b.id, mila.id);
+    await env.at('2026-12-03T08:00:00+03:00');
+    await press(env, mila, 'Подтвердить выход');
+    env.clock.set('2026-12-03T08:30:00+03:00');
+    env.amo.lead({ id: leadB, adults: 3, route: SHORT_ROUTE, startsAt: Date.parse('2026-12-03T16:00:00+03:00'), updatedAt: env.clock.now().getTime() });
+    await env.amoWebhook('update', leadB, Math.floor(env.clock.now().getTime() / 1000));
+    await env.at();
+    assert.equal((await env.group(b.id)).status, 'ASSIGNED', 'перенос: новое время нужно подтвердить заново');
+    await press(env, mila, 'Подтвердить новое время');
+    await env.at('2026-12-03T14:00:00+03:00');
+    const requests = env.tg.to(mila.tg).filter((m) => m.text.startsWith('Подтвердите выход'));
+    assert.equal(requests.length, 2, 'день уже подтверждён, но перенесённая группа снова ждёт — новый запрос');
+    const oldButton = env.tg.buttons(requests[0]).find((x) => x.text === 'Подтвердить выход').callback_data;
+    await env.bot.press(mila.tg, oldButton);
+    assert.equal((await env.group(b.id)).status, 'CONFIRMED', 'кнопка на подтверждённую группу подтверждает остальные группы дня');
   });
 
   it('BR-25: эскалация уходит дежурному, а если он не взял её за P-16 — всем администраторам', async () => {

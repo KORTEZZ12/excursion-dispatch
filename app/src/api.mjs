@@ -4,7 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { params } from './db.mjs';
 import { addMs, iso, isClock, parseDuration } from './time.mjs';
 import { enqueue } from './outbox.mjs';
-import { receiveWebhook } from './crm.mjs';
+import { receiveWebhook, sameSecret } from './crm.mjs';
 import * as D from './domain.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -86,7 +86,7 @@ export function createApi({ db, clock, cfg, bot }) {
          LEFT JOIN dispatch.guide gd ON gd.id = g.guide_id
         WHERE (g.starts_at AT TIME ZONE 'Europe/Moscow')::date = $1::date
         ORDER BY g.starts_at, b.id, g.seq`, [date]);
-    // «Требуют внимания»: без гида, без подтверждения выхода, с открытой эскалацией (US-17)
+    // «Проблемные группы»: без гида, без подтверждения выхода, с открытой эскалацией (US-17)
     const groups = rows.filter((g) => !attention || g.status === 'SEARCHING' || g.status === 'ASSIGNED' || g.open_escalations.length);
     return {
       body: {
@@ -233,9 +233,32 @@ export function createApi({ db, clock, cfg, bot }) {
   });
 
   // «Требует внимания»: заявки, которые не обработаны автоматически. В контракте 0.4 раздела не было (находка M-03)
+  const attentionJson = (a) => ({
+    id: a.id, bookingId: a.booking_id, externalId: a.external_id == null ? null : Number(a.external_id), reason: a.reason, detail: a.detail,
+    createdAt: iso(a.created_at), resolvedAt: iso(a.resolved_at), comment: a.comment ?? null,
+  });
   route('GET', '/v1/attention', {}, async ({ c }) => {
     const { rows } = await c.query('SELECT * FROM dispatch.attention WHERE resolved_at IS NULL ORDER BY created_at DESC');
-    return { body: rows.map((a) => ({ id: a.id, bookingId: a.booking_id, externalId: a.external_id == null ? null : Number(a.external_id), reason: a.reason, detail: a.detail, createdAt: iso(a.created_at) })) };
+    return { body: rows.map(attentionJson) };
+  });
+
+  // Закрыть пункт вручную с комментарием: заявку разобрали в amoCRM или решили не брать (SAR-3)
+  route('POST', '/v1/attention/{id}/resolve', { idem: true }, async ({ c, now, admin, args: [id], body }) => {
+    need(typeof body?.comment === 'string' && body.comment.trim().length >= 3, 'comment', 'Комментарий — не короче 3 символов');
+    if (!UUID.test(id)) throw new Http('NOT_FOUND');
+    const { rows: [a] } = await c.query('SELECT * FROM dispatch.attention WHERE id = $1 FOR UPDATE', [id]);
+    if (!a) throw new Http('NOT_FOUND');
+    if (a.resolved_at) return { body: attentionJson(a) };
+    const { rows: [u] } = await c.query(
+      'UPDATE dispatch.attention SET resolved_at = $2, resolved_by = $3, comment = $4 WHERE id = $1 RETURNING *', [id, now, admin, body.comment.trim()]);
+    return { body: attentionJson(u) };
+  });
+
+  // Тревоги резервного канала за сутки: пока нет провайдера звонков (Q-06), панель — единственное место, где их видно (SAR-2)
+  route('GET', '/v1/alarms', {}, async ({ c, now }) => {
+    const { rows } = await c.query(
+      `SELECT kind, text, at FROM dispatch.alarm WHERE at > $1 GROUP BY kind, text, at ORDER BY at DESC`, [addMs(now, -24 * 3600e3)]);
+    return { body: rows.map((r) => ({ kind: r.kind, text: r.text, at: iso(r.at) })) };
   });
 
   // ---------------------------------------------------------------- исполнение
@@ -266,7 +289,7 @@ export function createApi({ db, clock, cfg, bot }) {
       return { status: r.status, headers: {}, body: null };
     }
     if (req.method === 'POST' && url.pathname === '/integrations/telegram/webhook') {
-      if (!cfg.telegram.webhookSecret || req.headers['x-telegram-bot-api-secret-token'] !== cfg.telegram.webhookSecret) return { status: 401, headers: {}, body: null };
+      if (!sameSecret(req.headers['x-telegram-bot-api-secret-token'], cfg.telegram.webhookSecret)) return { status: 401, headers: {}, body: null };
       let update;
       try { update = JSON.parse(rawBody); } catch { return { status: 200, headers: {}, body: null }; }
       if (Number.isInteger(update?.update_id)) await bot(update);

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Диспетчер экскурсий
-  version: 0.5.0
+  version: 0.5.1
   description: |
     API панели администратора и входящие вебхуки amoCRM и Telegram. Гиды работают
     через Telegram-бота, поэтому своего API у них нет. Соглашения — в [README](README.md).
@@ -53,7 +53,7 @@ paths:
           example: '2026-10-24'
         - name: attention
           in: query
-          description: Только группы без гида, без подтверждения или с открытой эскалацией (US-17)
+          description: «Проблемные группы» — только группы без гида, без подтверждения или с открытой эскалацией (US-17)
           schema:
             type: boolean
             default: false
@@ -74,6 +74,7 @@ paths:
                     participants: 14
                     status: SEARCHING
                     guide: null
+                    version: 3
                     windowEndsAt: '2026-10-22T10:40:00+03:00'
                     noticeStatus: PENDING
                     openEscalations: [NO_GUIDE]
@@ -533,6 +534,78 @@ paths:
                   reason: ROUTE_NOT_FOUND
                   detail: Маршрута «Ночная прогулка» нет в справочнике
                   createdAt: '2026-10-22T10:30:00+03:00'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/attention/{attentionId}/resolve:
+    parameters:
+      - name: attentionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [Доска]
+      operationId: resolveAttention
+      summary: Закрыть пункт «Требует внимания»
+      description: |
+        Администратор разобрал заявку в amoCRM или решил её не брать. Пункт закрывается и сам, когда сделка
+        потом применилась без ошибки; пункт «этап не “Проведена”» — только этапом «Проведена» (BR-36).
+        Повтор возвращает 200 и тот же закрытый пункт.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [comment]
+              properties:
+                comment:
+                  type: string
+                  minLength: 3
+            example:
+              comment: Клиент перенёс экскурсию на весну, сделку закрыли в amoCRM
+      responses:
+        '200':
+          description: Пункт закрыт
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttentionItem'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+  /v1/alarms:
+    get:
+      tags: [Доска]
+      operationId: listAlarms
+      summary: Тревоги за сутки
+      description: |
+        Тревоги резервного канала (NFR-16): сводка не ушла к сроку, очередь не отправляет, сообщение не доставлено
+        после пяти попыток. Основной канал — звонок (D-14), пока провайдер не выбран (Q-06), тревогу видно здесь
+        и в Telegram администраторов.
+      responses:
+        '200':
+          description: Тревоги, новые первыми
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Alarm'
+              example:
+                - kind: DIGEST_NOT_SENT
+                  text: 'Сводки на завтра не отправлены: 3 из 12'
+                  at: '2026-10-23T19:05:00+03:00'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /v1/escalations:
@@ -1230,7 +1303,7 @@ components:
           type: string
     BoardGroup:
       type: object
-      required: [groupId, bookingId, routeName, startsAt, participants, status]
+      required: [groupId, bookingId, routeName, startsAt, participants, status, version]
       properties:
         groupId:
           type: string
@@ -1506,6 +1579,24 @@ components:
         detail:
           type: [string, 'null']
         createdAt:
+          type: string
+          format: date-time
+        resolvedAt:
+          type: [string, 'null']
+          format: date-time
+        comment:
+          type: [string, 'null']
+          description: Почему закрыт — комментарий администратора или «Сделка применилась»
+    Alarm:
+      type: object
+      required: [kind, text, at]
+      properties:
+        kind:
+          type: string
+          enum: [DIGEST_NOT_SENT, QUEUE_STALLED, TELEGRAM_FAILED]
+        text:
+          type: string
+        at:
           type: string
           format: date-time
     Escalation:

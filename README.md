@@ -74,6 +74,7 @@
 | OpenAPI и каталог ошибок | [docs/api](docs/api) | 0.4 |
 | Интеграции: amoCRM, Telegram | [docs/integrations](docs/integrations) | 0.4 |
 | Независимое ревью итерации 2 | [docs/reviews](docs/reviews/2026-10-27-iteration-2/README.md) | 27.10.2026 |
+| Ревью итерации 3 | [docs/reviews](docs/reviews/2026-11-23-iteration-3/README.md) | 23.11.2026 |
 | MVP релиза 1: код, запуск | [app](app/README.md) | 0.6 |
 | Итерация 3: находки и протокол приёмки | [docs/mvp](docs/mvp/README.md) | 0.6 |
 
@@ -85,5 +86,5 @@ psql -d ed_check -v ON_ERROR_STOP=1 -f docs/design/ddl.sql -f docs/design/ddl-ch
 npx @redocly/cli@1 lint docs/api/openapi.yaml
 cd tools && npm ci && node bpmn-lint.mjs ../docs/bpmn/*.bpmn && cd ..
 python3 tools/check_links.py
-cd app && npm ci && TEST_PG=postgres://postgres:postgres@localhost:5432 npm test   # MVP: 70 приёмочных тестов
+cd app && npm ci && TEST_PG=postgres://postgres:postgres@localhost:5432 npm test   # MVP: 75 приёмочных тестов
 ```

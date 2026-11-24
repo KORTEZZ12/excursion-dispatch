@@ -5,7 +5,7 @@
 <text x="1176" y="35" fill="#cbd5e1" font-size="14" text-anchor="end">Дежурный: Администратор 1</text>
 <text x="24" y="96" fill="#111827" font-size="22" font-weight="600">Доска групп · суббота, 24 октября</text>
 <rect x="24" y="112" width="150" height="32" rx="16" fill="#111827"/><text x="99" y="133" fill="#fff" font-size="13" text-anchor="middle">Все группы · 6</text>
-<rect x="184" y="112" width="190" height="32" rx="16" fill="#fff" stroke="#d1d5db"/><text x="279" y="133" fill="#b42318" font-size="13" text-anchor="middle">Требуют внимания · 2</text>
+<rect x="184" y="112" width="190" height="32" rx="16" fill="#fff" stroke="#d1d5db"/><text x="279" y="133" fill="#b42318" font-size="13" text-anchor="middle">Проблемные группы · 2</text>
 <rect x="384" y="112" width="260" height="32" rx="16" fill="#fff" stroke="#d1d5db"/><text x="514" y="133" fill="#374151" font-size="13" text-anchor="middle">Передано партнёрам за месяц · 1</text>
 <rect x="24" y="160" width="1152" height="436" rx="12" fill="#ffffff" stroke="#e5e7eb"/>
 <text x="48" y="192" fill="#6b7280" font-size="12" font-weight="600">Время</text>

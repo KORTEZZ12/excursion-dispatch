@@ -66,7 +66,7 @@
       <bpmn:outgoing>F7</bpmn:outgoing>
       <bpmn:timerEventDefinition id="S_Window_def"><bpmn:timeDate xsi:type="bpmn:tFormalExpression">=windowEndsAt</bpmn:timeDate></bpmn:timerEventDefinition>
     </bpmn:intermediateCatchEvent>
-    <bpmn:serviceTask id="S_Select" name="Выбрать гида с наименьшим числом групп на неделе">
+    <bpmn:serviceTask id="S_Select" name="Выбрать гида жребием среди откликнувшихся">
       <bpmn:extensionElements><zeebe:taskDefinition type="select-guide" /></bpmn:extensionElements>
       <bpmn:incoming>F7</bpmn:incoming>
       <bpmn:outgoing>F8</bpmn:outgoing>
